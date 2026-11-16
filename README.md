@@ -178,7 +178,7 @@ python3 scripts/compact_store_stats.py
 
 ## 八、两人协作（Git）
 
-仓库：**https://github.com/706617514-blip/pcc-workbench**（私有，仅两名协作者可见）
+仓库：**https://github.com/706617514-blip/pcc-workbench**（公开；任何人可查看与克隆，写入仍需协作者权限）
 
 两人各自在本地改、用 Git 同步。
 
