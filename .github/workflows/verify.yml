@@ -1,0 +1,73 @@
+name: verify
+
+# 每次 push 到 main、或提 PR 时，自动跑 app/selftest.html 里的 16 条验收场景。
+# 任何一条 FAIL（或数量不对）都会让这个 job 变红叉，提醒刚改动的人。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 起本地静态服务
+        run: |
+          set -euo pipefail
+          nohup python3 -m http.server 8777 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -sf -o /dev/null http://127.0.0.1:8777/app/index.html; then
+              echo "服务已就绪"; break
+            fi
+            sleep 0.5
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8777/app/data/stores.json
+          echo "数据端点正常"
+
+      - name: 在无头 Chrome 中跑验收
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser || command -v chromium)"
+          echo "浏览器: $CHROME"
+          for attempt in 1 2 3; do
+            echo "第 $attempt 次尝试…"
+            "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+              --virtual-time-budget=90000 --dump-dom \
+              "http://127.0.0.1:8777/app/selftest.html" > /tmp/dom.html 2>/dev/null || true
+            if grep -q "RESULT " /tmp/dom.html; then break; fi
+            sleep 5
+          done
+          cp /tmp/dom.html dom.html
+
+      - name: 判定结果
+        run: python3 tools/check_acceptance.py dom.html
+
+      - name: 失败时打印明细
+        if: failure()
+        run: |
+          echo "=== 验收输出 ==="
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("dom.html")
+          if p.exists():
+              m = re.search(r'<pre id="selftest-out">(.*?)</pre>', p.read_text(encoding="utf-8", errors="replace"), re.S)
+              print(m.group(1) if m else "（页面上没有 #selftest-out，可能没加载完）")
+          else:
+              print("（没有抓到 DOM）")
+          PY
+          echo "=== 服务日志 ==="
+          tail -20 /tmp/http.log || true
+
+      - name: 上传页面快照
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dom-snapshot
+          path: dom.html
+          retention-days: 7
