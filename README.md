@@ -176,12 +176,14 @@ python3 scripts/compact_store_stats.py
 
 ## 八、两人协作（Git）
 
-仓库放在 GitHub 私有仓库，两人各自在本地改、用 Git 同步。
+仓库：**https://github.com/706617514-blip/pcc-workbench**（私有，仅两名协作者可见）
+
+两人各自在本地改、用 Git 同步。
 
 ### 第一次（每台机器只做一次）
 
 ```bash
-git clone <仓库地址> pcc-workbench
+git clone https://github.com/706617514-blip/pcc-workbench.git
 cd pcc-workbench
 # Windows：双击「启动网页.cmd」
 # macOS / Linux：python3 -m http.server 8777
