@@ -1,5 +1,7 @@
 # PCC 会员营销工作台 —— 优惠券自动发放助手
 
+[![verify](https://github.com/706617514-blip/pcc-workbench/actions/workflows/verify.yml/badge.svg)](https://github.com/706617514-blip/pcc-workbench/actions/workflows/verify.yml)
+
 > COMM7085 Final Project · Group F
 > 依据 `PCC_PRD_最终.docx`（产品需求文档）实现的完整可交互网页产品。
 
@@ -218,3 +220,27 @@ git commit
 ```
 
 实在解不开：`git checkout --theirs <文件>` 取对方版本，或 `--ours` 取自己版本，再手动补。
+
+---
+
+## 九、自动验收（CI）
+
+每次 push 到 `main`（或提 PR）都会自动跑一遍 16 条验收，配置在
+`.github/workflows/verify.yml`，全部通过才会显示绿勾：
+
+```
+检出代码 → 起本地静态服务(python3 -m http.server) → 无头 Chrome 打开 app/selftest.html
+        → tools/check_acceptance.py 判定 → 有 FAIL 或数量≠16 就红叉
+```
+
+- **看结果**：仓库页顶部 **Actions** 标签，或 README 顶部那个 `verify` 徽章
+- **红了怎么办**：点进去看 `判定结果` 与 `失败时打印明细` 两步，会直接列出哪一条 FAIL、
+  以及页面上的原始输出；本地复现用双击 `app/selftest.html`
+- **只跑一次本地判定**（不需要 GitHub）：
+
+```bash
+python3 -m http.server 8777 &
+google-chrome --headless=new --no-sandbox --virtual-time-budget=90000 --dump-dom \
+  http://127.0.0.1:8777/app/selftest.html > dom.html
+python3 tools/check_acceptance.py dom.html   # 有失败时退出码为 1
+```
