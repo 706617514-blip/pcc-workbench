@@ -88,6 +88,7 @@
   function onHashChange() {
     const p = pageFromHash();
     if (p === S.page) return;
+    if (p !== 'approval') S.approvalHighlight = null;
     S.page = p;
     render();
     window.scrollTo(0, 0);
@@ -328,6 +329,19 @@
     apply.dataset.apply = 'pending';
     apply.addEventListener('click', () => { render(); toast('已应用筛选条件', 'ok'); });
     row.appendChild(apply);
+
+    // 一键重置：筛不到数据时不用逐项清空
+    const reset = el('button', 'btn btn-ghost', '重置');
+    reset.style.marginLeft = '10px';
+    reset.addEventListener('click', () => {
+      S.ov.couponTypes = []; S.ov.campaignIds = [];
+      S.ov.dateFrom = '2026-10-01'; S.ov.dateTo = C.DATA_TODAY;
+      S.ov.storeFilter = isStore() ? acc.scope_id : null;
+      S.ov.activityFilter = null;
+      render();
+      toast('已重置全部筛选条件', 'ok');
+    });
+    row.appendChild(reset);
     host.appendChild(bar);
 
     // 指标
@@ -440,7 +454,25 @@
       lineChart(canvas, series, { height: 280 });
     });
     if (!metrics.issued && !metrics.used) {
-      const em = el('div', 'empty', esc(t('ov.empty')));
+      // 空态要说清「为什么空」并给下一步，而不是一句灰字
+      const em = el('div', 'empty');
+      em.innerHTML = `<div class="empty-title">当前筛选范围内没有数据</div>
+        <div class="empty-desc">可能是券种、门店范围或日期条件过窄。可以清除筛选，或把日期范围放宽到近 30 天。</div>`;
+      const acts = el('div', 'empty-actions');
+      const b1 = el('button', 'btn btn-ghost btn-sm', '清除筛选');
+      b1.addEventListener('click', () => {
+        S.ov.couponTypes = []; S.ov.campaignIds = []; render();
+        toast('已清除券种与活动筛选', 'ok');
+      });
+      const b2 = el('button', 'btn btn-ghost btn-sm', '放宽到近 30 天');
+      b2.addEventListener('click', () => {
+        S.ov.dateFrom = E.utils.addDays(C.DATA_TODAY, -30);
+        S.ov.dateTo = C.DATA_TODAY;
+        render();
+        toast('日期范围已放宽到近 30 天', 'ok');
+      });
+      acts.appendChild(b1); acts.appendChild(b2);
+      em.appendChild(acts);
       host.appendChild(em);
     }
   }
@@ -1053,6 +1085,7 @@
       mo.close();
       S.create.draftPrefill = null;
       toast(`活动「${camp.name}」已提交审批（${camp.campaign_id}）`, 'ok');
+      S.approvalHighlight = camp.campaign_id;
       setHash('approval');
     });
   }
@@ -1242,6 +1275,19 @@
       </div>`;
     host.appendChild(head);
 
+    // 刚提交的活动：顶部提示条 + 列表高亮
+    if (S.approvalHighlight) {
+      const hl = DB.campaigns.find((x) => x.campaign_id === S.approvalHighlight);
+      const bar = el('div', 'notice');
+      bar.style.marginBottom = '16px';
+      bar.innerHTML = `<span>刚提交的活动「${esc(hl ? hl.name : S.approvalHighlight)}」（${esc(S.approvalHighlight)}）已进入待审批，下方已高亮。</span>
+        <button class="btn btn-ghost btn-sm" data-x="clear" style="margin-left:12px">知道了</button>`;
+      bar.querySelector('[data-x="clear"]').addEventListener('click', () => {
+        S.approvalHighlight = null; render();
+      });
+      host.appendChild(bar);
+    }
+
     // 筛选栏
     const bar = el('div', 'filterbar');
     const row = el('div', 'filterbar-row');
@@ -1304,6 +1350,8 @@
       const wrap = el('div', 'camp-list');
       list.forEach(({ c, log }) => {
         const item = el('div', 'camp-item');
+        // 刚提交的活动高亮，避免用户跳过来后不知道哪条是新的
+        if (S.approvalHighlight === c.campaign_id) item.classList.add('camp-item-new');
         const modeChip = c.mode === 'auto'
           ? `<span class="chip chip-red">${esc(t('mg.tab.auto'))}</span>`
           : `<span class="chip chip-grey">${esc(t('sr.mode.manual'))}</span>`;
@@ -1652,6 +1700,32 @@
       d.innerHTML = `<span class="ico">${SVG.warn}</span><div>${esc(t('st.denied'))}</div>`;
       host.appendChild(d);
     }
+
+    // 规则优先级（老师反馈第 5 条；工作台可配置项）
+    const ladder = E.priorityLadder();
+    const prCard = el('div', 'card card-pad');
+    prCard.style.marginBottom = '24px';
+    prCard.innerHTML = `
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+        <div style="font-size:17px;font-weight:700">规则优先级</div>
+        <div class="t-small t-muted">同一会员同时命中多条运行中规则时，只发优先级最高的一张，其余记为「优先级让步」</div>
+      </div>
+      <div class="prio-head">
+        <span>级别</span><span>运行中规则</span><span>券种</span><span>适用范围</span><span>编号</span>
+      </div>
+      ${ladder.map((r) => `<div class="prio-row">
+        <span class="prio-level">L${r.level}</span>
+        <span class="prio-name">${esc(r.name)}</span>
+        <span class="prio-type">${esc(r.coupon_name)}</span>
+        <span class="prio-scope">${esc(r.scope)}</span>
+        <span class="prio-id mono">${esc(r.campaign_id)}</span>
+      </div>`).join('') || '<div class="t-small t-muted" style="padding:12px 0">当前没有运行中的规则。</div>'}
+      <div class="prio-note">
+        级别：生日 100 &gt; 新人 90 &gt; 回流 80 &gt; 主题 70 = 门店本地 70（平级）&gt; 学生 60。
+        同级并列时按「适用范围更窄者优先」（单店 &gt; 多店 &gt; 全港），再按活动编号先后。
+        这组数值是工作台的可配置项，不是 PCC 现行运营政策，上线前须由 PCC 审定。
+      </div>`;
+    host.appendChild(prCard);
 
     // 界面语言
     const langCard = el('div', 'card card-pad');
@@ -2196,6 +2270,28 @@
       return frag;
     }
 
+    // 券面额建议 / 核销预测（老师反馈第 4 条）
+    if (h.kind === 'value' || h.kind === 'predict') {
+      const card = el('div', 'ai-card');
+      card.innerHTML = `<h4>${esc(h.title)}</h4>`
+        + (h.lines || []).map((l) => `<div style="font-size:13.5px;line-height:1.75;margin-bottom:6px">${esc(l)}</div>`).join('');
+      if (h.evidence && h.evidence.length) {
+        const ev = el('div', '');
+        ev.style.marginTop = '12px';
+        ev.innerHTML = `<div style="font-size:13px;font-weight:700;margin-bottom:6px">依据</div>`
+          + h.evidence.map((e) => `<div class="ai-reason">· ${esc(e)}</div>`).join('');
+        card.appendChild(ev);
+      }
+      if (h.ruleVersion) {
+        const rv = el('div', 'ai-reason');
+        rv.style.marginTop = '10px';
+        rv.textContent = `规则版本：${h.ruleVersion} · 输出为建议，需人工确认后自行提交审批`;
+        card.appendChild(rv);
+      }
+      frag.appendChild(card);
+      return frag;
+    }
+
     // draft / localize / permission
     const res = h.result;
     const card = el('div', 'ai-card');
@@ -2288,8 +2384,21 @@
 
   function runQuickCapability(key) {
     const acc = account();
+    const ctx = () => ({
+      sessionId: sessionId(),
+      currentDraft: S.create.draftPrefill,
+      audienceSize: (S.create.result || {}).total || 0,
+    });
     if (key === 'permission') {
       pushResult(AI.permissionCheck(acc, { sessionId: sessionId() , currentDraft: S.create.draftPrefill }));
+      return;
+    }
+    if (key === 'value') {
+      pushResult(AI.suggestValue(acc, ctx()));
+      return;
+    }
+    if (key === 'predict') {
+      pushResult(AI.predictRedemption(acc, ctx()));
       return;
     }
     if (key === 'explain') {

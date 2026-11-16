@@ -32,6 +32,8 @@
     { key: 'draft',      page: ['create'],                  roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
     { key: 'localize',   page: ['create'],                  roles: ['L3_STORE', 'L1_HQ_MARKETING', 'L1_HQ_ADMIN'] },
     { key: 'permission', page: ['create', 'manage'],        roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
+    { key: 'value',      page: ['create', 'overview'],      roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
+    { key: 'predict',    page: ['create', 'overview'],      roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
     { key: 'explain',    page: ['records', 'overview'],     roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
   ];
 
@@ -392,9 +394,121 @@
     return { kind: 'draft', intent, draft, guard: g, route: r, title: '已生成可编辑活动草稿' };
   }
 
+  /* ================================================================
+   * 9. 券面额建议（老师反馈第 4 条；确定性规则，不调用 LLM）
+   * 依据：该券种历史核销率 + 授权折扣上限 + 样本量。
+   * 只输出「建议」，不写入活动；人员自行决定并走原有审批。
+   * ==============================================================*/
+  // 折扣弹性假设：折扣每加深 1 个百分点，核销率约提升 0.6 个百分点。
+  // 这是测试假设（非因果估计），写入 assumptions 前须用真实对照实验校准。
+  const DISCOUNT_ELASTICITY = 0.6;
+
+  function typeStats(couponType) {
+    const list = DB.couponInstance.filter((c) => c.coupon_type === couponType);
+    const claimed = list.filter((c) => !!c.claimed_at).length;
+    const used = list.filter((c) => c.status === 'used' || !!c.redeemed_at).length;
+    const n = list.length;
+    return {
+      issued: n, claimed, used,
+      claim_rate: n ? claimed / n : 0,
+      redeem_rate: n ? used / n : 0,
+    };
+  }
+
+  function pctText(x) { return (x * 100).toFixed(1) + '%'; }
+
+  function suggestValue(account, context) {
+    context = context || {};
+    const draft = context.currentDraft || {};
+    const couponType = draft.coupon_type
+      || (account.scope_type === 'store' ? 'store_local' : 'winback');
+    const ct = E.COUPON_TYPES[couponType];
+    const st = typeStats(couponType);
+    const baseDiscount = draft.discount || ct.discount;
+
+    // 候选档位：基线、加深 5 个百分点、加深 10 个百分点
+    const candidates = [baseDiscount, +(baseDiscount - 0.05).toFixed(2), +(baseDiscount - 0.10).toFixed(2)]
+      .filter((d, i, arr) => d >= 0.5 && arr.indexOf(d) === i)
+      .map((d) => {
+        const deeperPp = (baseDiscount - d) * 100;                 // 折扣加深的百分点
+        const estRate = Math.max(0, st.redeem_rate + deeperPp * DISCOUNT_ELASTICITY / 100);
+        const probe = Object.assign({}, draft, {
+          coupon_type: couponType,
+          discount: d,
+          offer_label: (d * 10).toFixed(d * 10 % 1 ? 1 : 0) + ' 折',
+          store_scope: draft.store_scope || (account.scope_type === 'store' ? 'store' : 'all_hk'),
+          store_id: draft.store_id || account.scope_id,
+        });
+        const g = guard(probe, account, context.sessionId);
+        return { discount: d, label: probe.offer_label, est_rate: estRate, guard_pass: g.pass, guard: g };
+      });
+
+    const best = candidates.filter((c) => c.guard_pass)[0] || candidates[0];
+    const evidence = [
+      `该券种历史样本 ${st.issued} 张，核销率 ${pctText(st.redeem_rate)}（领取率 ${pctText(st.claim_rate)}）`,
+      `授权基线折扣：${ct.discount_label}；折扣弹性假设：每加深 1 个百分点核销率约 +${DISCOUNT_ELASTICITY} 个百分点`,
+      '折扣弹性是测试假设，不是因果估计；真实弹性须用对照实验校准',
+    ];
+
+    return {
+      kind: 'value',
+      title: '券面额建议（建议，需人工确认）',
+      lines: [
+        `券种：${ct.name}；当前基线：${ct.discount_label}`,
+        ...candidates.map((c) => `· ${c.label}：预计核销率约 ${pctText(c.est_rate)}`
+          + `（${c.guard_pass ? '授权内可用' : '超出授权上限，需总部例外申请'}）`),
+        `推荐：${best.label} —— ${best.guard_pass ? '授权内、样本较充足' : '需要先取得例外授权'}；`
+          + 'AI 不会自行写入活动或提交审批。',
+      ],
+      evidence,
+      suggestions: candidates,
+      ruleVersion: 'coupon-value/v1（确定性）',
+      guard: { pass: best.guard_pass, checks: best.guard.checks },
+    };
+  }
+
+  /* ================================================================
+   * 10. 核销预测（老师反馈第 4 条；统计外推，不是模型预测）
+   * ==============================================================*/
+  function predictRedemption(account, context) {
+    context = context || {};
+    const draft = context.currentDraft || {};
+    const couponType = draft.coupon_type || (account.scope_type === 'store' ? 'store_local' : 'winback');
+    const ct = E.COUPON_TYPES[couponType];
+    const st = typeStats(couponType);
+    const audience = context.audienceSize || 0;
+    const issued = audience;
+    const claimPoint = Math.round(issued * st.claim_rate);
+    const usedPoint = Math.round(issued * st.redeem_rate);
+    // 二项分布的正态近似 95% 区间
+    const p = st.redeem_rate;
+    const sd = Math.sqrt(Math.max(issued, 1) * p * (1 - p));
+    const low = Math.max(0, Math.round(usedPoint - 1.96 * sd));
+    const high = Math.min(issued, Math.round(usedPoint + 1.96 * sd));
+
+    return {
+      kind: 'predict',
+      title: '核销预测（基于合成历史的统计外推）',
+      lines: [
+        `券种：${ct.name}（${ct.discount_label}）；目标人群 ${issued} 人`,
+        `预计领取 ≈ ${claimPoint} 张（历史领取率 ${pctText(st.claim_rate)}）`,
+        `预计核销 ≈ ${usedPoint} 张，95% 区间 ${low}–${high} 张（历史核销率 ${pctText(p)}，样本 ${st.issued} 张）`,
+        issued ? '' : '提示：先在「活动创建」页应用筛选，才能按实际人群规模预测。',
+        '这是统计外推，不是预测模型；合成数据只能验证方法，真实核销需上线后对照测试。',
+      ].filter(Boolean),
+      evidence: [
+        `样本：该券种已发 ${st.issued} 张 / 已领 ${st.claimed} 张 / 已核销 ${st.used} 张`,
+        '口径：核销率 = 已核销 / 已发放（同一发放群体、统一截至时点）',
+        '局限：历史券的折扣、人群与时间窗不同，直接外推会高估或低估',
+      ],
+      estimate: { issued, claimPoint, usedPoint, low, high, rate: p },
+      ruleVersion: 'redeem-forecast/v1（统计外推）',
+    };
+  }
+
   global.PCC_AI = {
     CAPABILITIES, availableCapabilities,
     parseIntent, buildDraft, guard, route, explainBlock, localize, permissionCheck, generateDraft,
-    segmentLabel,
+    segmentLabel, suggestValue, predictRedemption, typeStats,
   };
 })(window);

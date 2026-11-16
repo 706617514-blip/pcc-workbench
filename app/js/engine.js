@@ -393,6 +393,127 @@
   /* ================================================================
    * 4. 资格检查（PRD 表 5 步骤 6：范围 / 同意 / 频次 / 同轮去重）
    * ==============================================================*/
+  /* ================================================================
+   * 规则优先级（老师反馈第 5 条；PRD 6.2.1 列为待 PCC 确认项）
+   *
+   * 同一会员同时命中多条「运行中」规则时，只发优先级最高的一张，
+   * 其余规则对该会员记为 PRIORITY_YIELD（优先级让步），不发券但留记录。
+   *
+   * 级别：生日 100 > 新人 90 > 回流 80 > 主题 70 = 门店本地 70 > 学生 60
+   *   · 主题券与门店本地券**平级**（按需求方确认）
+   *   · 同级并列时：适用范围更窄者优先（单店 > 多店 > 全港），再按活动编号先后
+   *
+   * 注意：这组数值是「工作台可配置项」，不是 PCC 现行运营政策；
+   * 上线前须由 PCC 审定（PRD 6.2.1 / 8.4）。
+   * ==============================================================*/
+  const RULE_PRIORITY = {
+    birthday: 100, newbie: 90, winback: 80,
+    halloween: 70, store_local: 70,   // ← 主题与门店本地平级
+    student: 60,
+  };
+
+  function priorityLevel(couponType) {
+    return Object.prototype.hasOwnProperty.call(RULE_PRIORITY, couponType)
+      ? RULE_PRIORITY[couponType] : 50;
+  }
+
+  /** 适用范围精度：单店 3 > 多店 2 > 全港 1 */
+  function scopeRank(campaign) {
+    if (campaign.store_scope === 'store') return 3;
+    if (campaign.store_scope === 'stores') return 2;
+    return 1;
+  }
+
+  /** a 是否优先于 b（级别 → 范围精度 → 编号先后） */
+  function outranks(a, b) {
+    const la = priorityLevel(a.coupon_type);
+    const lb = priorityLevel(b.coupon_type);
+    if (la !== lb) return la > lb;
+    const sa = scopeRank(a);
+    const sb = scopeRank(b);
+    if (sa !== sb) return sa > sb;
+    return String(a.campaign_id) < String(b.campaign_id);
+  }
+
+  /** 当前日期是否落在该券种的触发窗口内（轻量判断，不含同意/频控） */
+  function triggerMatches(customerId, couponType, todayStr, storeId) {
+    const c = DB.byId.get(customerId);
+    if (!c) return false;
+    if (couponType === 'newbie') return !!c.signup_date && dayDiff(todayStr, c.signup_date) <= 30;
+    if (couponType === 'birthday') {
+      return !!c.birthday_mmdd && c.birthday_mmdd.slice(0, 2) === todayStr.slice(5, 7);
+    }
+    if (couponType === 'student') {
+      const se = c.student_eligibility;
+      return !!(se && se.eligible && se.valid_until >= todayStr);
+    }
+    if (couponType === 'winback') {
+      const st = memberStats(customerId, storeId ? 'store' : 'all_hk', storeId);
+      return !!(st && st.days_since >= 30);
+    }
+    if (couponType === 'halloween') {
+      const w = COUPON_TYPES.halloween.window;
+      return todayStr >= w[0] && todayStr <= w[1];
+    }
+    if (couponType === 'store_local') {
+      return !!(storeId ? memberStats(customerId, 'store', storeId) : null);
+    }
+    return false;
+  }
+
+  /** 该规则的门店范围是否覆盖此会员（在给定门店上下文中） */
+  function ruleAppliesTo(campaign, customerId, storeId) {
+    if (campaign.store_scope === 'store') {
+      if (storeId && campaign.store_id !== storeId) return false;
+      return !!memberStats(customerId, 'store', campaign.store_id);
+    }
+    if (campaign.store_scope === 'stores') {
+      const ids = campaign.store_ids || [];
+      return ids.some((sid) => memberStats(customerId, 'store', sid));
+    }
+    return true;
+  }
+
+  /**
+   * 找出会把该会员「接走」的更高优先级规则。
+   * 只比较：运行中 + 范围覆盖 + 触发命中 + 该规则自身不会因去重被拦的规则。
+   */
+  function findHigherPriorityRule(customerId, currentCampaign, todayStr, storeId) {
+    if (!currentCampaign) return null;
+    const running = DB.campaigns.filter((c) =>
+      c.status === 'running' && c.campaign_id !== currentCampaign.campaign_id);
+    let winner = null;
+    for (let i = 0; i < running.length; i++) {
+      const c = running[i];
+      // 同券种之间不构成竞争：同轮去重已保证只发一张，谁发都是同一张券
+      if (c.coupon_type === currentCampaign.coupon_type) continue;
+      if (!outranks(c, currentCampaign)) continue;
+      if (!ruleAppliesTo(c, customerId, storeId)) continue;
+      const ctxStore = c.store_scope === 'store' ? c.store_id : storeId;
+      if (!triggerMatches(customerId, c.coupon_type, todayStr, ctxStore)) continue;
+      const dup = checkDuplicate(customerId, c.coupon_type, { campaign: c, today: todayStr });
+      if (dup.blocked) continue;                  // 该规则自己也发不出去，不算竞争
+      if (!winner || outranks(c, winner)) winner = c;
+    }
+    return winner;
+  }
+
+  /** 供界面展示：当前所有运行中规则的优先级阶梯 */
+  function priorityLadder() {
+    return DB.campaigns
+      .filter((c) => c.status === 'running')
+      .slice()
+      .sort((a, b) => (outranks(a, b) ? -1 : outranks(b, a) ? 1 : 0))
+      .map((c) => ({
+        campaign_id: c.campaign_id, name: c.name, coupon_type: c.coupon_type,
+        coupon_name: COUPON_TYPES[c.coupon_type].name,
+        level: priorityLevel(c.coupon_type),
+        scope: scopeLabelOf(c),
+        scope_rank: scopeRank(c),
+        mode: c.mode,
+      }));
+  }
+
   /**
    * 对单个会员 + 券种 + 门店范围执行确定性资格检查。
    * 返回 { eligible:boolean, code, reason }。fail-closed。
@@ -444,7 +565,22 @@
     const freq = checkFrequency(customerId, todayStr);
     if (freq.blocked) return { eligible: false, code: freq.code, reason: freq.reason };
 
-    // --- 4.5 数据完整性 ---
+    // --- 4.5 规则优先级：同一会员同时命中多条运行中规则时只发优先级最高的一张 ---
+    if (!opts.ignorePriority && opts.campaign) {
+      const yieldTo = findHigherPriorityRule(customerId, opts.campaign, todayStr, scopeId);
+      if (yieldTo) {
+        const mine = priorityLevel(opts.campaign.coupon_type);
+        const theirs = priorityLevel(yieldTo.coupon_type);
+        return {
+          eligible: false, code: 'PRIORITY_YIELD',
+          reason: `同时命中更高优先级规则「${yieldTo.name}」（${COUPON_TYPES[yieldTo.coupon_type].name}，优先级 ${theirs}），`
+            + `本活动优先级 ${mine}；按规则同一轮只发一张，本活动让步。`,
+          yielded_to: yieldTo.campaign_id,
+        };
+      }
+    }
+
+    // --- 4.6 数据完整性 ---
     if (DB.assumptions && !DB.byId.has(customerId))
       return { eligible: false, code: 'DATA_INCOMPLETE', reason: '关键字段缺失。' };
 
@@ -541,6 +677,7 @@
       const chk = checkEligibility(cid, campaign.coupon_type, {
         store_id: campaign.store_scope === 'store' ? campaign.store_id : null,
         campaign_id: campaign.campaign_id,
+        campaign,                       // 供规则优先级比较
         channel: campaign.channel || 'app_push',
       });
       const key = idempotencyKey(campaign.campaign_id, cid, campaign.round || 'r1');
@@ -1505,6 +1642,9 @@
     createCampaign, approveCampaign, rejectCampaign, setCampaignStatus,
     updateStoreAccount, createStoreAccount,
     buildExport, couponTypeKeys, scopeLabelOf, campaignCoversStore, inRangeFilter,
+    // 规则优先级（老师反馈第 5 条）
+    RULE_PRIORITY, priorityLevel, priorityLadder, findHigherPriorityRule, outranks,
+    triggerMatches,
     utils: { iso, addDays, dayDiff, d2, storeLabel },
   };
   global.PCC_CONST_COUPON_KEYS = couponTypeKeys;

@@ -364,8 +364,72 @@
         `min>max 自动交换=${swapOk}；组合筛选 ${combo} 人；单调递减=${monotonic}`);
     } catch (e) { rec(16, '消费金额／杯数自由区间', false, 'ERR ' + e.message); }
 
-    const pass = results.filter((r) => r.pass).length;
-    const summary = {
+    /* ---- 17. 规则优先级：同一会员命中多条规则时只发优先级最高的一张 ---- */
+    try {
+      // 受控场景：临时注入两条不同级别的运行中规则，并清空券实例以排除去重干扰
+      const savedCoupons = DB.couponInstance.slice();
+      const m = DB.customers.find((x) => x.birthday_mmdd && x.birthday_mmdd.slice(0, 2) === C.DATA_TODAY.slice(5, 7));
+      const hi = {
+        campaign_id: 'CMP-TEST-HI', name: '测试·生日规则', coupon_type: 'birthday',
+        status: 'running', store_scope: 'all_hk', mode: 'auto',
+      };
+      const lo = {
+        campaign_id: 'CMP-TEST-LO', name: '测试·学生规则', coupon_type: 'student',
+        status: 'running', store_scope: 'all_hk', mode: 'auto',
+      };
+      // 同级并列：主题（全港）与门店本地（单店）平级，按适用范围更窄者优先
+      const theme = { campaign_id: 'CMP-TEST-T', name: '测试·主题', coupon_type: 'halloween', status: 'running', store_scope: 'all_hk' };
+      const storeOnly = { campaign_id: 'CMP-TEST-S', name: '测试·门店本地', coupon_type: 'store_local', status: 'running', store_scope: 'store', store_id: m ? myStore : '' };
+
+      let winner = null, tieOk = false, ladderOk = false, levelOk = false;
+      if (m) {
+        DB.campaigns.push(hi, lo, theme, storeOnly);
+        DB.couponInstance.length = 0;
+        winner = E.findHigherPriorityRule(m.customer_id, lo, C.DATA_TODAY, null);
+        tieOk = E.outranks(storeOnly, theme) === true && E.outranks(theme, storeOnly) === false;
+        levelOk = E.priorityLevel('birthday') === 100 && E.priorityLevel('winback') === 80
+          && E.priorityLevel('halloween') === E.priorityLevel('store_local')
+          && E.priorityLevel('student') === 60;
+        DB.couponInstance.push(...savedCoupons);
+        const ladder = E.priorityLadder();
+        ladderOk = ladder.length >= 2 && ladder.every((row, i) => i === 0
+          || ladder[i - 1].level >= row.level);
+        [hi, lo, theme, storeOnly].forEach((c) => {
+          const idx = DB.campaigns.indexOf(c);
+          if (idx >= 0) DB.campaigns.splice(idx, 1);
+        });
+      }
+
+      const ok = !!m && winner && winner.coupon_type === 'birthday' && tieOk && ladderOk && levelOk;
+      rec(17, '规则优先级',
+        ok,
+        m
+          ? `生日(100)接走学生(60)的会员=${winner ? winner.name + '/' + winner.campaign_id : '无'}；` +
+            `主题与门店本地平级且单店优先=${tieOk}；优先级阶梯有序=${ladderOk}；` +
+            `级别 生日100/回流80/主题=门店本地70/学生60=${levelOk}`
+          : '未找到当期生日会员，无法构造受控场景');
+    } catch (e) { rec(17, '规则优先级', false, 'ERR ' + e.message); }
+
+    /* ---- 18. AI 券面额建议与核销预测（老师反馈第 4 条）---- */
+    try {
+      const v = AI.suggestValue(hq, { audienceSize: 500 });
+      const p = AI.predictRedemption(hq, { audienceSize: 500 });
+      const tiers = (v.suggestions || []).length;
+      const hasGuardFlag = (v.suggestions || []).every((s) => typeof s.guard_pass === 'boolean');
+      const labelOk = /建议/.test(v.title) && !!v.ruleVersion && /v1/.test(v.ruleVersion);
+      const estOk = p.estimate && p.estimate.low <= p.estimate.usedPoint
+        && p.estimate.usedPoint <= p.estimate.high;
+      const rangeOk = p.estimate && p.estimate.high <= p.estimate.issued;
+      const rec0 = (v.suggestions || [])[0];
+      rec(18, 'AI 券面额建议与核销预测',
+        tiers >= 2 && hasGuardFlag && labelOk && estOk && rangeOk,
+        `建议档位 ${tiers} 个，均带授权标记=${hasGuardFlag}；推荐档=${rec0 ? rec0.label : '—'}；` +
+        `预测：人群 ${p.estimate ? p.estimate.issued : 0} → 核销 ${p.estimate ? p.estimate.usedPoint : 0}` +
+        `（95% 区间 ${p.estimate ? p.estimate.low : 0}–${p.estimate ? p.estimate.high : 0}）；` +
+        `区间不超人群=${rangeOk}；标注为建议=${labelOk}`);
+    } catch (e) { rec(18, 'AI 券面额建议与核销预测', false, 'ERR ' + e.message); }
+
+    const pass = results.filter((r) => r.pass).length;    const summary = {
       total: results.length, pass, fail: results.length - pass,
       results: results.map((r) => ({ id: r.id, name: r.name, pass: r.pass, detail: r.detail })),
     };

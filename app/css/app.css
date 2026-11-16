@@ -837,3 +837,114 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
   opacity: 0;
   transition: opacity .15s;
 }
+
+/* ============================================================================
+ * 统一设计令牌（参考 4px 间距基准 + 圆角分级：
+ *   控件 8px < 卡片 12px < 弹窗 16px，子元素圆角不超过父级）
+ * ==========================================================================*/
+:root {
+  --r-ctl: 8px;
+  --r-card: 12px;
+  --r-modal: 16px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+}
+
+/* 卡片：统一圆角与内边距，靠边框分层而不是堆阴影 */
+.card { border-radius: var(--r-card); }
+.card-pad { padding: var(--sp-5) var(--sp-6); }
+
+/* 表格：分隔线 + 悬停（不做斑马纹——它与悬停、选中叠加会让底色打架），表头吸顶 */
+.table-wrap { border-radius: var(--r-card); }
+table.data th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+}
+table.data tbody tr { transition: background-color .15s; }
+table.data tbody tr:hover { background: #FBF7F8; }
+table.data td.num, table.data th.num { font-variant-numeric: tabular-nums; }
+
+/* 切页淡入（200ms，位移 6px；尊重系统减弱动效设置） */
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+#content > * { animation: pageIn .2s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  #content > *, .card, .msg-bubble { animation: none !important; transition: none !important; }
+}
+
+/* 空态：说明「为什么空」并给出下一步，而不是一句灰字 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 46px 20px;
+  color: var(--ink-3);
+}
+.empty .empty-title { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.empty .empty-desc { font-size: 13px; line-height: 1.7; max-width: 380px; text-align: center; }
+.empty .empty-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+/* ============================================================================
+ * 规则优先级阶梯
+ * ==========================================================================*/
+.prio-head,
+.prio-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 132px 1fr 108px;
+  gap: 12px;
+  align-items: center;
+}
+.prio-head {
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.prio-row {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 13.5px;
+}
+.prio-row:last-child { border-bottom: 0; }
+.prio-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(165, 25, 46, .08);
+  color: var(--pcc-red);
+  font-size: 12px;
+  font-weight: 700;
+}
+.prio-name { font-weight: 600; color: var(--ink); }
+.prio-type, .prio-scope { color: var(--ink-2); }
+.prio-id { color: var(--ink-3); font-size: 12.5px; }
+.prio-note {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #FAFAFB;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-3);
+}
+
+/* 刚提交的活动高亮（2 秒内一眼可见） */
+.camp-item-new {
+  box-shadow: 0 0 0 2px rgba(165, 25, 46, .22);
+  border-radius: var(--r-card);
+}
