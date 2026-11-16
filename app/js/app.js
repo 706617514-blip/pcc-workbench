@@ -60,6 +60,40 @@
   const account = () => E.ACCOUNTS.find((a) => a.account_id === S.accountKey) || E.ACCOUNTS[0];
   const isStore = () => account().scope_type === 'store';
 
+  /* ------------------------------------------------------------ 路由
+   * 每个页面都对应一个 #/xxx 地址：
+   *   · 刷新后停留在原页面（演示时不会一刷新就跳回总览）
+   *   · 浏览器前进 / 后退可用
+   *   · 可以直接把某个页面的链接发给别人（如 #/records）
+   * --------------------------------------------------------------*/
+  const PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings', 'consumer'];
+
+  function pageFromHash() {
+    const m = /^#\/([a-z]+)/.exec(location.hash || '');
+    const p = m ? m[1] : 'overview';
+    return PAGES.indexOf(p) >= 0 ? p : 'overview';
+  }
+
+  /** 切页：改 hash，由 hashchange 统一渲染（避免双渲染与状态不同步） */
+  function setHash(page) {
+    const h = '#/' + page;
+    if (location.hash === h) {
+      if (S.page !== page) { S.page = page; render(); }
+      window.scrollTo(0, 0);
+      return;
+    }
+    location.hash = h;
+  }
+
+  function onHashChange() {
+    const p = pageFromHash();
+    if (p === S.page) return;
+    S.page = p;
+    render();
+    window.scrollTo(0, 0);
+  }
+
+
   /* ------------------------------------------------------------ 启动 */
   async function boot() {
     const host = $('#boot');
@@ -77,8 +111,10 @@
       return;
     }
     host.innerHTML = '';
+    S.page = pageFromHash();          // 支持 #/records 这类深链与刷新保持
     host.appendChild(buildShell());
     render();
+    window.addEventListener('hashchange', onHashChange);
   }
 
   /* ------------------------------------------------------------ 外壳 */
@@ -181,10 +217,8 @@
       const b = el('button', 'nav-item' + (S.page === it.k ? ' active' : ''),
         `<span class="nav-dot"></span><span>${esc(it.l)}</span>`);
       b.addEventListener('click', () => {
-        S.page = it.k;
         if (it.k === 'overview') { S.ov.storeFilter = isStore() ? acc.scope_id : null; }
-        render();
-        window.scrollTo(0, 0);
+        setHash(it.k);
       });
       nav.appendChild(b);
     });
@@ -230,6 +264,9 @@
     rightBox.appendChild(exp);
     head.appendChild(rightBox);
     host.appendChild(head);
+
+    // 方案定位：所属模块 + 上下游衔接 + 研究问题（默认收起，不干扰日常使用）
+    host.appendChild(buildPositionBar());
 
     // 筛选栏
     const bar = el('div', 'filterbar');
@@ -371,9 +408,18 @@
         const an = el('div', '');
         an.style.marginTop = '6px';
         metrics.anomalies.slice(0, 4).forEach((a) => {
-          const line = el('div', 't-small');
-          line.style.cssText = 'padding:7px 0;border-bottom:1px solid var(--line-2);display:flex;justify-content:space-between;gap:10px';
-          line.innerHTML = `<span>${esc(a.label)}</span><span class="t-muted mono">${esc(a.code)}</span>`;
+          const line = el('button', 'anomaly-row');
+          line.type = 'button';
+          line.title = '跳转到发送记录查看相关任务';
+          line.innerHTML = `<span>${esc(a.label)}</span><span class="t-muted mono">${esc(a.code)}</span><span class="anomaly-go">查看 →</span>`;
+          line.addEventListener('click', () => {
+            // 异常 → 发送记录：失败类直接带上「失败」筛选，避免用户在另一页再从零筛
+            S.records.result = a.type === 'send_failed' ? 'failed' : '';
+            S.records.mode = '';
+            S.records.campaignId = a.campaign_id || '';
+            setHash('records');
+            toast('已跳转到发送记录，并套用与该异常相关的筛选', 'ok', 2800);
+          });
           an.appendChild(line);
         });
         side.appendChild(an);
@@ -399,8 +445,31 @@
     }
   }
 
-  function metric(label, value, foot, alarm, small) {
-    const m = el('div', 'metric');
+  /* 方案定位条：说明本产品属于哪个模块、与上下游模块怎么衔接 */
+  function buildPositionBar() {
+    const wrap = el('div', 'posbar');
+    const head = el('button', 'posbar-head');
+    head.type = 'button';
+    head.innerHTML = `<span class="posbar-tag">Module 2</span>
+      <span class="posbar-title">${esc(t('pos.bar'))}</span>
+      <span class="posbar-chain">${esc(t('pos.chain'))}</span>
+      <span class="posbar-toggle">${esc(t('pos.more'))}</span>`;
+    const body = el('div', 'posbar-body');
+    body.style.display = 'none';
+    body.innerHTML = String(t('pos.body')).split('\n').filter(Boolean)
+      .map((line) => `<div class="posbar-line">${esc(line)}</div>`).join('');
+    head.addEventListener('click', () => {
+      const isOpen = body.style.display !== 'none';
+      body.style.display = isOpen ? 'none' : 'block';
+      head.querySelector('.posbar-toggle').textContent = isOpen ? t('pos.more') : t('pos.less');
+      wrap.classList.toggle('open', !isOpen);
+    });
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+    return wrap;
+  }
+
+  function metric(label, value, foot, alarm, small) {    const m = el('div', 'metric');
     m.innerHTML = `<div class="metric-label">${esc(label)}</div>
       <div class="metric-value${small ? ' small' : ''}${alarm ? ' alarm' : ''}">${esc(value)}</div>
       <div class="metric-foot">${esc(foot)}</div>`;
@@ -984,8 +1053,7 @@
       mo.close();
       S.create.draftPrefill = null;
       toast(`活动「${camp.name}」已提交审批（${camp.campaign_id}）`, 'ok');
-      S.page = 'approval';
-      render();
+      setHash('approval');
     });
   }
 
@@ -1145,6 +1213,18 @@
     foot.appendChild(close);
     const mo = modal({ title: c.name, subtitle: `${c.campaign_id} · ${E.scopeLabelOf(c)}`, body, footer: foot });
     close.addEventListener('click', mo.close);
+
+    // 活动详情 → 其他页面的直达入口（此前只能关掉弹窗再自己找菜单）
+    const goAp = el('button', 'btn btn-ghost', '查看审批记录');
+    goAp.addEventListener('click', () => { mo.close(); S.approvalTab = 'all'; setHash('approval'); });
+    foot.insertBefore(goAp, close);
+    const goSr = el('button', 'btn btn-ghost', '查看发送记录');
+    goSr.addEventListener('click', () => {
+      mo.close();
+      S.records.mode = ''; S.records.result = ''; S.records.campaignId = c.campaign_id;
+      setHash('records');
+    });
+    foot.insertBefore(goSr, close);
   }
 
   /* ================================================================
@@ -2192,9 +2272,8 @@
         S.create.draftPrefill = res.draft;
         S.create.applied = true;
         if (!S.create.result) S.create.result = E.filterMembers(S.create.filters, account());
-        S.page = 'create';
         toggleAI(false);
-        render();
+        setHash('create');
         toast(t('ai.filled'), 'ok', 4000);
       });
       foot.appendChild(fill);

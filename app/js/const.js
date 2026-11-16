@@ -77,6 +77,12 @@
       'ov.updated': '数据更新时间',
       'ov.empty': '当前筛选范围内没有数据，请调整券种或日期。',
 
+      'pos.bar': '旅程与自动触发：把「找谁、发什么、谁来批、发完怎么样」串成一条可执行旅程',
+      'pos.chain': '上游 Module 1 人群  →  本工作台  →  下游 Module 4 效果分析',
+      'pos.more': '展开说明',
+      'pos.less': '收起',
+      'pos.body': '本产品属于 Module 2（旅程搭建器与自动触发），不是独立的人群工具或报表工具。\n与 Module 1（人群）的衔接：活动创建页的会员筛选与门店范围直接产出分群结果，分群口径（最近消费、累计金额、购买杯数、等级、渠道、学生资格）与 Module 1 的定义一致，筛选结果可直接作为活动目标人群。\n与 Module 4（效果分析）的衔接：发放 / 领取 / 核销、相关订单实付与异常记录按券种、人群、日期聚合，口径与 Module 4 共用，分析侧不必重新定义指标。\n本方案回答的三个研究问题：一是同一活动应发、实发与被拦截（资格 / 同意 / 频控 / 重复）各是多少、落在哪些会员与规则上；二是新人、生日、回流等人群的券在发放、领取、核销上有何差异；三是每条消息能否证明已获同意且在频控限额内。答案分别改变筛选条件与规则配置、目标人群与券种选择、以及频控设置与抽查方式。',
+
       'cr.title': '活动创建',
       'cr.desc': '筛选会员、确认人数，再创建活动并提交审批',
       'cr.desc.store': '筛选曾在本店消费的会员，并创建仅适用于本店的活动',
@@ -377,6 +383,12 @@
       'ov.export': '導出數據',
       'ov.updated': '數據更新時間',
       'ov.empty': '當前篩選範圍內沒有數據，請調整券種或日期。',
+
+      'pos.bar': '旅程與自動觸發：把「找誰、發什麼、誰來批、發完怎麼樣」串成一條可執行旅程',
+      'pos.chain': '上游 Module 1 人群  →  本工作台  →  下游 Module 4 效果分析',
+      'pos.more': '展開說明',
+      'pos.less': '收起',
+      'pos.body': '本產品屬於 Module 2（旅程搭建器與自動觸發），不是獨立的人群工具或報表工具。\n與 Module 1（人群）的銜接：活動創建頁的會員篩選與門店範圍直接產出分群結果，分群口徑（最近消費、累計金額、購買杯數、等級、渠道、學生資格）與 Module 1 的定義一致，篩選結果可直接作為活動目標人群。\n與 Module 4（效果分析）的銜接：發放 / 領取 / 核銷、相關訂單實付與異常記錄按券種、人群、日期聚合，口徑與 Module 4 共用，分析側不必重新定義指標。\n本方案回答的三個研究問題：一是同一活動應發、實發與被攔截（資格 / 同意 / 頻控 / 重複）各是多少、落在哪些會員與規則上；二是新人、生日、回流等人群的券在發放、領取、核銷上有何差異；三是每條訊息能否證明已獲同意且在頻控限額內。答案分別改變篩選條件與規則配置、目標人群與券種選擇、以及頻控設置與抽查方式。',
       'cr.title': '活動創建',
       'cr.desc': '篩選會員、確認人數，再創建活動並提交審批',
       'cr.desc.store': '篩選曾在本店消費的會員，並創建僅適用於本店的活動',
@@ -531,6 +543,12 @@
       'ov.export': 'Export data',
       'ov.updated': 'Data updated at',
       'ov.empty': 'No data in the current filter range. Adjust coupon or date.',
+
+      'pos.bar': 'Journey & auto-trigger: who to target, what to send, who approves, what happened',
+      'pos.chain': 'Upstream Module 1 (Segments)  →  this workbench  →  downstream Module 4 (Analytics)',
+      'pos.more': 'Show details',
+      'pos.less': 'Hide details',
+      'pos.body': 'This product sits in Module 2 (journey builder & auto-trigger); it is not a standalone segmentation or reporting tool.\nLink to Module 1 (Segments): the member filters and store scope on the create page produce the audience directly, using the same definitions (recency, spend, cups, tier, channel, student status), so the filtered audience can be reused as the campaign target.\nLink to Module 4 (Analytics): issue / claim / redemption, related order spend and anomalies are aggregated by coupon type, segment and date with shared metric definitions, so analysis does not redefine them.\nThe three research questions answered here: (1) how many coupons should be issued, were issued, and were blocked (eligibility / consent / frequency / duplicate), and on which members and rules; (2) how different segments (new, birthday, win-back) differ in issue, claim and redemption; (3) whether every message can be shown to be consented and within the frequency cap. The answers change filter and rule settings, segment and coupon choice, and frequency-cap configuration.',
 
       'cr.title': 'Create campaign',
       'cr.desc': 'Filter members, confirm the count, then create a campaign and submit for approval',

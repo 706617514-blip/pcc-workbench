@@ -244,3 +244,25 @@ google-chrome --headless=new --no-sandbox --virtual-time-budget=90000 --dump-dom
   http://127.0.0.1:8777/app/selftest.html > dom.html
 python3 tools/check_acceptance.py dom.html   # 有失败时退出码为 1
 ```
+
+---
+
+## 十、演示与评审
+
+**页面可以按地址直达**（刷新保持、可前进后退、可直接分享某页）：
+
+| 页面 | 地址 |
+|---|---|
+| 总览 | `app/index.html#/overview` |
+| 活动创建 | `app/index.html#/create` |
+| 活动管理 | `app/index.html#/manage` |
+| 审批中心 | `app/index.html#/approval` |
+| 发送记录 | `app/index.html#/records` |
+| 设置 | `app/index.html#/settings` |
+| 消费端原型 | `app/index.html#/consumer` |
+
+**方案定位**：总览页顶部有一条 `Module 2 · 旅程与自动触发` 的定位条，展开可见与 Module 1（人群）、
+Module 4（效果分析）的衔接，以及本方案回答的三个研究问题（老师反馈第 2、3 条）。
+
+老师 5 条反馈的逐条落实、待定的操作逻辑改进、以及 PRD 3.1 与产品的不一致之处，
+见 [docs/评审与改进建议.md](docs/评审与改进建议.md)。
