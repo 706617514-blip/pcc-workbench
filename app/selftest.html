@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>selftest</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="boot"></div>
+<script src="js/const.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/app.js"></script>
+<script src="js/acceptance.js"></script>
+<script>
+(function () {
+  var out = document.createElement('pre');
+  out.id = 'selftest-out';
+  out.textContent = 'RUNNING';
+  document.body.appendChild(out);
+
+  function waitFor(fn, ms) {
+    return new Promise(function (res, rej) {
+      var t0 = Date.now();
+      var iv = setInterval(function () {
+        var ok = false;
+        try { ok = fn(); } catch (e) { ok = false; }
+        if (ok) { clearInterval(iv); res(); }
+        else if (Date.now() - t0 > ms) { clearInterval(iv); rej(new Error('wait timeout')); }
+      }, 120);
+    });
+  }
+
+  waitFor(function () {
+    return window.PCC_ENGINE && window.PCC_ENGINE.DB && window.PCC_ENGINE.DB.ready === true;
+  }, 90000).then(function () {
+    return window.PCC_ACCEPTANCE.run();
+  }).then(function (s) {
+    var lines = ['RESULT ' + s.pass + '/' + s.total];
+    s.results.forEach(function (r) {
+      lines.push((r.pass ? 'PASS' : 'FAIL') + ' [' + r.id + '] ' + r.name + ' :: ' + String(r.detail || '').slice(0, 400));
+    });
+    out.textContent = lines.join('\n');
+    document.title = 'ACCEPT ' + s.pass + '/' + s.total;
+  }).catch(function (e) {
+    out.textContent = 'ERROR ' + e.message + '\n' + (e.stack || '');
+    document.title = 'ERROR';
+  });
+})();
+</script>
+</body>
+</html>
