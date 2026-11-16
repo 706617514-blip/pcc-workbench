@@ -46,8 +46,10 @@
     },
     manageTab: 'all',
     approvalTab: 'all', approvalDate: '',
-    records: { mode: '', campaignId: '', result: '', range: 'week' },
+    records: { mode: '', campaignId: '', result: '', range: 'week', sortBy: 'time', sortDir: -1 },
     settings: { denied: false },
+    approvalHighlight: null,   // 刚提交的活动编号（审批页高亮）
+    consumerHint: null,        // 原型里领取成功后，引导回总览看指标变化
     // AI 抽屉
     ai: {
       open: false, tab: 'draft', state: 'idle', // idle|generating|result|blocked|failed|denied
@@ -173,6 +175,12 @@
         if (isStore()) { S.ov.storeFilter = account().scope_id; } else { S.ov.storeFilter = null; }
         E.audit(account().display_name || account().name, 'switch_account', 'staff_account', v,
           `切换工作台账号至 ${v}`, '演示账号切换');
+        // 切到没有账号管理权的门店账号时，不要停在无权页面
+        if (!account().can_manage_accounts && S.page === 'settings') {
+          setHash('overview');
+          toast('门店账号没有账号管理权限，已切换到总览', 'warn', 4600);
+          return;
+        }
         render();
         toast(`已切换为${account().display_name || account().name} · ${isStore() ? E.utils.storeLabel(account().scope_id) : '全港范围'}`, 'ok');
       },
@@ -1546,14 +1554,43 @@
     } else {
       const tw = el('div', 'table-wrap');
       const table = el('table', 'data');
-      table.innerHTML = `<thead><tr>
-          <th>${esc(t('sr.col.id'))}</th><th>${esc(t('sr.col.campaign'))}</th>
-          <th>${esc(t('sr.col.mode'))}</th><th>${esc(t('sr.col.source'))}</th>
-          <th>${esc(t('sr.col.time'))}</th><th>${esc(t('sr.col.result'))}</th>
-          <th>${esc(t('sr.col.detail'))}</th>
-        </tr></thead><tbody></tbody>`;
+      // 表头可排序（点击切换升/降序，默认按时间倒序）
+      const cols = [
+        { k: 'id', l: t('sr.col.id') },
+        { k: 'campaign', l: t('sr.col.campaign') },
+        { k: 'mode', l: t('sr.col.mode') },
+        { k: 'source', l: t('sr.col.source') },
+        { k: 'time', l: t('sr.col.time') },
+        { k: 'result', l: t('sr.col.result') },
+        { k: '', l: t('sr.col.detail') },
+      ];
+      table.innerHTML = `<thead><tr>${cols.map((c) => {
+        if (!c.k) return `<th>${esc(c.l)}</th>`;
+        const on = S.records.sortBy === c.k;
+        const arrow = on ? (S.records.sortDir === 1 ? ' ↑' : ' ↓') : '';
+        return `<th class="sortable" data-sort="${c.k}" aria-sort="${on ? (S.records.sortDir === 1 ? 'ascending' : 'descending') : 'none'}">`
+          + `${esc(c.l)}<span class="sort-ind">${arrow}</span></th>`;
+      }).join('')}</tr></thead><tbody></tbody>`;
+      $$('th.sortable', table).forEach((th) => {
+        th.addEventListener('click', () => {
+          const k = th.dataset.sort;
+          if (S.records.sortBy === k) S.records.sortDir = -S.records.sortDir;
+          else { S.records.sortBy = k; S.records.sortDir = 1; }
+          render();
+        });
+      });
       const tb = $('tbody', table);
-      jobs.slice().reverse().forEach((j) => {
+      const sk = S.records.sortBy;
+      const dir = S.records.sortDir;
+      const val = (j) => {
+        if (sk === 'time') return j.executed_at || j.created_at || '';
+        if (sk === 'result') return j.status || '';
+        return String(j[sk === 'campaign' ? 'campaign_id' : sk] || '');
+      };
+      jobs.slice().sort((a, b) => {
+        const x = val(a), y = val(b);
+        return x < y ? -dir : x > y ? dir : 0;
+      }).forEach((j) => {
         const tr = el('tr');
         const st = j.status === 'failed'
           ? `<span class="t-red t-bold">${esc(t('sr.result.failed'))}</span>`
@@ -1886,6 +1923,23 @@
 
     host.appendChild(el('div', 'notice grey', '本期消费端只提供静态原型，不改造现有 PCC App。以下券数据来自工作台的模拟发放结果，可直接点击「領取優惠券」完成领取，随后在后台「总览」中查看领取与核销指标变化。'));
 
+    // 领取成功后：引导回后台看指标变化（否则用户不知道下一步去哪）
+    if (S.consumerHint) {
+      const hb = el('div', 'notice');
+      hb.style.display = 'flex';
+      hb.style.alignItems = 'center';
+      hb.style.gap = '14px';
+      hb.style.flexWrap = 'wrap';
+      hb.innerHTML = `<span>已领取「${esc(S.consumerHint.name)}」，有效期至 ${esc(S.consumerHint.valid)}。这次领取已计入后台的「主动领取」，可以去总览看变化。</span>`;
+      const go = el('button', 'btn btn-primary btn-sm', '去总览看变化 →');
+      go.addEventListener('click', () => setHash('overview'));
+      const closeHint = el('button', 'btn btn-ghost btn-sm', '知道了');
+      closeHint.addEventListener('click', () => { S.consumerHint = null; render(); });
+      hb.appendChild(go);
+      hb.appendChild(closeHint);
+      host.appendChild(hb);
+    }
+
     const wrap = el('div', 'app-shell');
     wrap.style.marginTop = '22px';
 
@@ -2041,6 +2095,11 @@
           const r = E.claimCoupon(first.coupon_id, state.cid);
           if (!r.ok) { toast(r.error, 'err'); return; }
           toast(`领取成功：${E.COUPON_TYPES[r.coupon.coupon_type].name}，有效期至 ${r.coupon.valid_until}`, 'ok', 4400);
+          // 领取后会改变后台的领取/核销指标，给一个直达入口
+          S.consumerHint = {
+            name: E.COUPON_TYPES[r.coupon.coupon_type].name,
+            valid: r.coupon.valid_until,
+          };
           render();
         });
       }

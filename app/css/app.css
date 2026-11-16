@@ -948,3 +948,13 @@ table.data td.num, table.data th.num { font-variant-numeric: tabular-nums; }
   box-shadow: 0 0 0 2px rgba(165, 25, 46, .22);
   border-radius: var(--r-card);
 }
+
+/* 可排序表头 */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover { color: var(--pcc-red); }
+th.sortable[aria-sort="ascending"], th.sortable[aria-sort="descending"] { color: var(--pcc-red); }
+.sort-ind { margin-left: 4px; font-size: 11px; }
