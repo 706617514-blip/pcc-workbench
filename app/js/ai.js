@@ -34,6 +34,7 @@
     { key: 'permission', page: ['create', 'manage'],        roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
     { key: 'value',      page: ['create', 'overview'],      roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
     { key: 'predict',    page: ['create', 'overview'],      roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
+    { key: 'copy',       page: ['create', 'manage'],        roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
     { key: 'explain',    page: ['records', 'overview'],     roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
   ];
 
@@ -506,9 +507,99 @@
     };
   }
 
+  /* ================================================================
+   * 11. 券文案草稿生成（PRD 3.3 组件 G；模板 + 确定性合规检查）
+   * 会员面向文案用繁体（与 PCC App 一致），后台界面语言不改变文案语种。
+   * 输出为「草稿」，须人工确认并走审批后才能使用，不自动发送。
+   * ==============================================================*/
+  const COPY_UNSUB = '如不想再收到，可於 App「我的 → 通知設定」關閉，或回覆 TD 退訂。';
+  const COPY_BANNED = ['免費贈送', '100%', '絕對', '保證', '保証', '必中', '最便宜', '全港第一', '零風險'];
+
+  function couponValidityText(ct, draft) {
+    if (draft && draft.valid_from && draft.valid_until) {
+      return `${draft.valid_from} 至 ${draft.valid_until}`;
+    }
+    return ct.validity_label;
+  }
+
+  function generateCopy(account, context) {
+    context = context || {};
+    const draft = context.currentDraft || {};
+    const couponType = draft.coupon_type
+      || (account.scope_type === 'store' ? 'store_local' : 'winback');
+    const ct = E.COUPON_TYPES[couponType];
+    const discountLabel = draft.offer_label || ct.discount_label;
+    const scopeLabel = draft.store_scope ? E.scopeLabelOf(draft) : ct.scope_label;
+    const validity = couponValidityText(ct, draft);
+    const seg = draft.segment_definition
+      || (account.scope_type === 'store' ? '本店會員' : 'PCC 會員');
+    const stack = ct.stack_points
+      ? '可與積分同單使用（先以積分抵付，再對餘額套用折扣）。'
+      : '不可與積分同單使用。';
+    const terms = `有效期：${validity}；適用門店：${scopeLabel}；`
+      + `使用限制：${ct.per_member_label}，每筆訂單最多使用一張優惠券；${stack}`;
+
+    const variants = [
+      {
+        id: 'formal',
+        tone: '正式（App 推送／短訊）',
+        title: `${seg}專享：${ct.name} ${discountLabel}`,
+        body: `您已獲贈「${ct.name}」一張，可於 ${scopeLabel} 使用，優惠為 ${discountLabel}。`
+          + `${stack}數量有限，請於有效期內使用。`,
+        terms,
+        cta: '查看我的獎賞',
+      },
+      {
+        id: 'friendly',
+        tone: '親切（App 首頁卡片）',
+        title: `${ct.name}已放入您的獎賞，記得領取`,
+        body: `您好，這是為您準備的 ${discountLabel} ${ct.name}。`
+          + `在 ${scopeLabel} 下單時選用它即可，${ct.stack_points ? '還能與積分一起用' : '每單限用一張'}。`
+          + `領取後有效期由領取日起計，別放到過期。`,
+        terms,
+        cta: '立即領取',
+      },
+      {
+        id: 'short',
+        tone: '精簡（推送標題，≤ 18 字）',
+        title: `${discountLabel}${ct.name}，${scopeLabel}`,
+        body: `您的 ${ct.name} 已到帳，${scopeLabel}可用。`,
+        terms,
+        cta: '去使用',
+      },
+    ];
+
+    // 确定性合规检查（PRD 8.2：明示有效期、適用門店、退訂方式；不得绝对化）
+    const full = variants.map((v) => `${v.title}\n${v.body}\n${v.terms}\n${COPY_UNSUB}`).join('\n');
+    const checks = [
+      { name: '包含有效期', pass: /有效期/.test(full) },
+      { name: '包含適用門店與範圍', pass: /適用門店/.test(full) },
+      { name: '包含退訂／通知關閉方式', pass: /退訂/.test(COPY_UNSUB) && /退訂/.test(full) },
+      { name: '無絕對化或保證性用語', pass: !COPY_BANNED.some((w) => full.indexOf(w) >= 0) },
+      { name: '折扣表述與券規則一致', pass: full.indexOf(discountLabel) >= 0 },
+      { name: '未承諾保證性結果', pass: !/保證|保証|必中/.test(variants.map((v) => v.body).join('\n')) },
+    ];
+
+    return {
+      kind: 'copy',
+      title: '券文案草稿（需人工確認）',
+      variants,
+      checks,
+      unsub: COPY_UNSUB,
+      evidence: [
+        `券種：${ct.name}；折扣：${discountLabel}；適用：${scopeLabel}`,
+        `有效期：${validity}；使用限制：${ct.per_member_label}`,
+        '文案由模板生成，不调用 LLM；语种固定为繁体（与 PCC App 一致，不随后台界面语言变化）',
+        '合规检查项：有效期 / 適用門店 / 退訂方式 / 绝对化用语 / 折扣一致 / 保证性表述',
+      ],
+      ruleVersion: 'coupon-copy/v1（模板 + 确定性检查）',
+      guard: { pass: checks.every((c) => c.pass), checks },
+    };
+  }
+
   global.PCC_AI = {
     CAPABILITIES, availableCapabilities,
     parseIntent, buildDraft, guard, route, explainBlock, localize, permissionCheck, generateDraft,
-    segmentLabel, suggestValue, predictRedemption, typeStats,
+    segmentLabel, suggestValue, predictRedemption, typeStats, generateCopy,
   };
 })(window);

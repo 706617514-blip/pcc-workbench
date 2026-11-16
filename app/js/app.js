@@ -2329,6 +2329,60 @@
       return frag;
     }
 
+    // 券文案草稿（PRD 3.3 组件 G）
+    if (h.kind === 'copy') {
+      const card = el('div', 'ai-card');
+      card.innerHTML = `<h4>${esc(h.title)}</h4>
+        <div class="t-small t-muted" style="margin-bottom:10px">文案为草稿，需人工确认并走审批后才能使用；不自动发送。</div>`;
+      (h.variants || []).forEach((v) => {
+        const box = el('div', 'ai-kv copy-box');
+        box.style.cssText = 'flex-direction:column;align-items:flex-start;gap:6px;padding:12px 0;border-bottom:1px solid var(--line-2)';
+        box.innerHTML = `<div class="t-small t-muted">${esc(v.tone)}</div>
+          <div style="font-weight:700;font-size:14px">${esc(v.title)}</div>
+          <div style="font-size:13px;line-height:1.7;color:var(--ink-2)">${esc(v.body)}</div>
+          <div style="font-size:12px;line-height:1.7;color:var(--ink-3)">${esc(v.terms)}</div>
+          <div style="font-size:12px;color:var(--ink-3)">${esc(h.unsub || '')}</div>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn btn-ghost btn-sm" data-copy="1">复制这段文案</button>
+            <span class="t-small t-muted">按鈕：${esc(v.cta)}</span>
+          </div>`;
+        box.querySelector('[data-copy]').addEventListener('click', () => {
+          const text = `${v.title}\n${v.body}\n${v.terms}\n${h.unsub || ''}`;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(
+              () => toast('已复制到剪贴板', 'ok', 2200),
+              () => toast('复制失败，请手动选择文字', 'warn', 2600));
+          } else {
+            toast('当前环境不支持自动复制，请手动选择文字', 'warn', 2600);
+          }
+        });
+        card.appendChild(box);
+      });
+      if (h.guard) {
+        const ul = el('ul', 'ai-checks');
+        ul.style.marginTop = '12px';
+        h.guard.checks.forEach((c) => {
+          const li = el('li', '');
+          li.innerHTML = `<span style="color:${c.pass ? 'var(--green)' : 'var(--pcc-red)'}">${c.pass ? '✓' : '✗'}</span>
+            <span class="t-small">${esc(c.name)}</span>`;
+          ul.appendChild(li);
+        });
+        card.appendChild(ul);
+      }
+      if (h.evidence && h.evidence.length) {
+        const ev = el('div', '');
+        ev.style.marginTop = '12px';
+        ev.innerHTML = h.evidence.map((e) => `<div class="ai-reason">· ${esc(e)}</div>`).join('');
+        card.appendChild(ev);
+      }
+      const rv = el('div', 'ai-reason');
+      rv.style.marginTop = '10px';
+      rv.textContent = `规则版本：${h.ruleVersion} · 草稿需人工确认，AI 不会自行发送`;
+      card.appendChild(rv);
+      frag.appendChild(card);
+      return frag;
+    }
+
     // 券面额建议 / 核销预测（老师反馈第 4 条）
     if (h.kind === 'value' || h.kind === 'predict') {
       const card = el('div', 'ai-card');
@@ -2454,6 +2508,10 @@
     }
     if (key === 'value') {
       pushResult(AI.suggestValue(acc, ctx()));
+      return;
+    }
+    if (key === 'copy') {
+      pushResult(AI.generateCopy(acc, ctx()));
       return;
     }
     if (key === 'predict') {

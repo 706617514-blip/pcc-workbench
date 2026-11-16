@@ -429,6 +429,22 @@
         `区间不超人群=${rangeOk}；标注为建议=${labelOk}`);
     } catch (e) { rec(18, 'AI 券面额建议与核销预测', false, 'ERR ' + e.message); }
 
+    /* ---- 19. AI 券文案草稿生成（PRD 3.3 组件 G）---- */
+    try {
+      const c = AI.generateCopy(hq, { audienceSize: 500 });
+      const vs = c.variants || [];
+      const hasShape = vs.length === 3 && vs.every((v) => v.title && v.body && v.terms && v.cta);
+      const allPass = c.guard && c.guard.checks.every((x) => x.pass);
+      const hasTerms = vs.every((v) => /有效期/.test(v.terms) && /適用門店/.test(v.terms));
+      const hasUnsub = !!c.unsub && /退訂/.test(c.unsub);
+      const noBanned = !/免費贈送|100%|絕對|保證|必中/.test(vs.map((v) => v.title + v.body + v.terms).join(''));
+      rec(19, 'AI 券文案草稿生成',
+        hasShape && allPass && hasTerms && hasUnsub && noBanned,
+        `变体 ${vs.length} 个（${vs.map((v) => v.tone).join(' / ')}）；` +
+        `合规检查 ${c.guard ? c.guard.checks.filter((x) => x.pass).length : 0}/${c.guard ? c.guard.checks.length : 0} 通过；` +
+        `含有效期与適用門店=${hasTerms}；含退訂=${hasUnsub}；无绝对化用语=${noBanned}`);
+    } catch (e) { rec(19, 'AI 券文案草稿生成', false, 'ERR ' + e.message); }
+
     const pass = results.filter((r) => r.pass).length;    const summary = {
       total: results.length, pass, fail: results.length - pass,
       results: results.map((r) => ({ id: r.id, name: r.name, pass: r.pass, detail: r.detail })),
