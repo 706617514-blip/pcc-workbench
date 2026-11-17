@@ -143,12 +143,19 @@
     return PAGES.indexOf(p) >= 0 ? p : 'overview';
   }
 
+  /** 切页后回到顶部（内容在 App 窗口内部滚动） */
+  function scrollTop() {
+    const c = $('#content');
+    if (c) c.scrollTop = 0;
+    window.scrollTo(0, 0);
+  }
+
   /** 切页：改 hash，由 hashchange 统一渲染（避免双渲染与状态不同步） */
   function setHash(page) {
     const h = '#/' + page;
     if (location.hash === h) {
       if (S.page !== page) { S.page = page; render(); }
-      window.scrollTo(0, 0);
+      scrollTop();
       return;
     }
     location.hash = h;
@@ -160,7 +167,7 @@
     if (p !== 'approval') S.approvalHighlight = null;
     S.page = p;
     render();
-    window.scrollTo(0, 0);
+    scrollTop();
   }
 
 
@@ -192,25 +199,27 @@
     const root = el('div', '');
     root.id = 'root';
     root.innerHTML = `
-      <header class="appbar" id="appbar">
-        <div class="appbar-inner">
-          <div class="appbar-brand">
-            <div class="brand-logo" id="brandLogo"></div>
-            <div class="brand-text"><div class="brand-name">PACIFIC<br>COFFEE</div></div>
+      <div class="app-window">
+        <header class="appbar" id="appbar">
+          <div class="appbar-inner">
+            <div class="appbar-brand">
+              <div class="brand-logo" id="brandLogo"></div>
+              <div class="brand-text"><div class="brand-name">PACIFIC<br>COFFEE</div></div>
+            </div>
+            <nav class="topnav" id="nav"></nav>
+            <div class="appbar-tools">
+              <button class="ai-search" id="aiSearch" type="button">
+                <span class="ai-search-ico">${SVG.ai}</span>
+                <span class="ai-search-ph">${esc(t('ai.search.ph'))}</span>
+                <span class="ai-search-key">AI</span>
+              </button>
+              <div class="lang-switch" id="langSwitch"></div>
+              <div class="account-menu" id="accountMenu"></div>
+            </div>
           </div>
-          <nav class="topnav" id="nav"></nav>
-          <div class="appbar-tools">
-            <button class="ai-search" id="aiSearch" type="button">
-              <span class="ai-search-ico">${SVG.ai}</span>
-              <span class="ai-search-ph">${esc(t('ai.search.ph'))}</span>
-              <span class="ai-search-key">AI</span>
-            </button>
-            <div class="lang-switch" id="langSwitch"></div>
-            <div class="account-menu" id="accountMenu"></div>
-          </div>
-        </div>
-      </header>
-      <main class="content" id="content"></main>
+        </header>
+        <main class="content" id="content"></main>
+      </div>
       <div class="ai-drawer" id="aiDrawer"></div>
     `;
     $('#brandLogo', root).innerHTML = global.UI.pccLogo(40);
