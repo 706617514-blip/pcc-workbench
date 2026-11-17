@@ -25,6 +25,48 @@
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   };
 
+  /* ---------------------------------------------- 可视化组件（纯 SVG / DOM） */
+
+  /** 横向条形图行：label + 进度条 + 数值。value 0-1 表示占比，display 为显示文本 */
+  function vizBar(label, value, display, tone, alarm) {
+    const row = el('div', 'viz-bar-row');
+    const pctVal = Math.max(0, Math.min(1, Number(value) || 0));
+    const fillTone = tone || 'wine';
+    row.innerHTML = `<div class="viz-bar-top"><span class="viz-bar-label">${esc(label)}</span>
+        <span class="viz-bar-value${alarm ? ' alarm' : ''}">${esc(display)}</span></div>
+      <div class="viz-bar-track"><span class="viz-bar-fill tone-${fillTone}${alarm ? ' alarm' : ''}" style="width:${(pctVal * 100).toFixed(1)}%"></span></div>`;
+    return row;
+  }
+
+  /** 环形进度图：居中数值 + 下方标签 */
+  function vizDonut(value, max, color, centerText, centerSub) {
+    const wrap = el('div', 'viz-donut');
+    const r = 40, c = 2 * Math.PI * r;
+    const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+    const dash = (c * ratio).toFixed(2);
+    wrap.innerHTML = `<svg viewBox="0 0 100 100" class="viz-donut-svg">
+        <circle cx="50" cy="50" r="${r}" class="viz-donut-bg"></circle>
+        <circle cx="50" cy="50" r="${r}" class="viz-donut-fg" style="stroke:${color};stroke-dasharray:${dash} ${c.toFixed(2)}"></circle>
+      </svg>
+      <div class="viz-donut-center"><b>${esc(centerText)}</b>${centerSub ? `<span>${esc(centerSub)}</span>` : ''}</div>`;
+    return wrap;
+  }
+
+  /** 迷你柱状图：一组数值，按最大值归一 */
+  function vizColumns(items, color) {
+    const wrap = el('div', 'viz-cols');
+    const max = Math.max(1, ...items.map((x) => x.value));
+    items.forEach((it) => {
+      const col = el('div', 'viz-col');
+      const h = Math.max(3, Math.round((it.value / max) * 100));
+      col.innerHTML = `<div class="viz-col-bar" style="height:${h}%;background:${color}"></div>
+        <span class="viz-col-label">${esc(it.label)}</span>`;
+      col.title = `${it.label}：${it.value}`;
+      wrap.appendChild(col);
+    });
+    return wrap;
+  }
+
   /** 新版看板面板：统一图标 + 标题 + 内容区 */
   function panel(title, subtitle, icon) {
     const p = el('section', 'dash-panel');
@@ -149,40 +191,89 @@
   function buildShell() {
     const root = el('div', '');
     root.id = 'root';
-    root.style.display = 'flex';
-    root.style.minHeight = '100vh';
     root.innerHTML = `
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-logo" id="brandLogo"></div>
-          <div class="brand-text">
-            <div class="brand-name">PACIFIC<br>COFFEE</div>
+      <header class="appbar" id="appbar">
+        <div class="appbar-inner">
+          <div class="appbar-brand">
+            <div class="brand-logo" id="brandLogo"></div>
+            <div class="brand-text"><div class="brand-name">PACIFIC<br>COFFEE</div></div>
+          </div>
+          <nav class="topnav" id="nav"></nav>
+          <div class="appbar-tools">
+            <button class="ai-search" id="aiSearch" type="button">
+              <span class="ai-search-ico">${SVG.ai}</span>
+              <span class="ai-search-ph">${esc(t('ai.search.ph'))}</span>
+              <span class="ai-search-key">AI</span>
+            </button>
+            <div class="lang-switch" id="langSwitch"></div>
+            <div class="account-menu" id="accountMenu"></div>
           </div>
         </div>
-        <div class="side-label" id="sideLabel"></div>
-        <nav class="nav" id="nav"></nav>
-        <div class="side-user">
-          <div class="avatar" id="uAvatar"></div>
-          <div>
-            <div class="u-name" id="uName"></div>
-            <div class="u-desc" id="uDesc"></div>
-          </div>
-        </div>
-      </aside>
-      <div class="main">
-        <header class="topbar">
-          <h1 id="pageTitle"></h1>
-          <div style="display:flex;align-items:center;gap:16px">
-            <div id="accountSwitch"></div>
-            <span class="demo-tag" id="demoTag"></span>
-          </div>
-        </header>
-        <main class="content" id="content"></main>
-      </div>
-      <button class="ai-fab" id="aiFab" title="AI 活动助手">${SVG.ai}</button>
+      </header>
+      <main class="content" id="content"></main>
       <div class="ai-drawer" id="aiDrawer"></div>
     `;
-    $('#brandLogo', root).innerHTML = global.UI.pccLogo(46);
+    $('#brandLogo', root).innerHTML = global.UI.pccLogo(40);
+
+    // 顶部搜索栏：点击打开 AI 助手抽屉
+    $('#aiSearch', root).addEventListener('click', () => toggleAI(true));
+
+    // 语言切换（账号信息左侧）
+    const langBtn = el('button', 'lang-btn', `<span class="lang-globe">◎</span><span id="langLabel">简体中文</span>`);
+    langBtn.type = 'button';
+    langBtn.title = '切换语言';
+    let langOpen = false;
+    const langPanel = el('div', 'lang-panel');
+    langPanel.style.display = 'none';
+    C.LOCALES.forEach((l) => {
+      const it = el('button', 'lang-item', esc(l.label));
+      it.type = 'button';
+      it.dataset.key = l.key;
+      it.addEventListener('click', () => {
+        S.locale = l.key;
+        langOpen = false;
+        langPanel.style.display = 'none';
+        render();
+        toast('界面语言已切换', 'ok');
+      });
+      langPanel.appendChild(it);
+    });
+    langBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      langOpen = !langOpen;
+      langPanel.style.display = langOpen ? 'block' : 'none';
+    });
+    const langWrap = el('div', 'lang-wrap');
+    langWrap.appendChild(langBtn);
+    langWrap.appendChild(langPanel);
+    $('#langSwitch', root).appendChild(langWrap);
+
+    // 账号下拉菜单（悬浮头像展开）：头像 + 账号信息 + 切换 + 设置
+    const accMenu = el('div', 'account-menu-wrap');
+    const accTrigger = el('button', 'account-trigger');
+    accTrigger.type = 'button';
+    accTrigger.innerHTML = `<span class="account-avatar" id="uAvatar"></span>
+      <span class="account-trigger-name" id="uName"></span><span class="account-caret">⌄</span>`;
+    const accPanel = el('div', 'account-dropdown');
+    accPanel.innerHTML = `<div class="acc-head">
+        <div class="acc-avatar-lg" id="uAvatarLg"></div>
+        <div><div class="acc-name" id="uNameLg"></div><div class="acc-scope" id="uDesc"></div></div>
+      </div>
+      <div class="acc-section-label">切换身份</div>
+      <div id="accountSwitch"></div>
+      <div class="acc-divider"></div>
+      <button class="acc-action" id="accSettings">${DASH_ICONS.check}<span>账号与权限设置</span><span class="acc-arrow">→</span></button>`;
+    accMenu.appendChild(accTrigger);
+    accMenu.appendChild(accPanel);
+    $('#accountMenu', root).appendChild(accMenu);
+
+    // 悬浮展开 / 移出收起（用计时器避免缝隙抖动）
+    let accTimer = null;
+    accMenu.addEventListener('mouseenter', () => { clearTimeout(accTimer); accMenu.classList.add('open'); });
+    accMenu.addEventListener('mouseleave', () => { accTimer = setTimeout(() => accMenu.classList.remove('open'), 180); });
+
+    // 语言面板：点击外部收起
+    document.addEventListener('click', () => { langOpen = false; langPanel.style.display = 'none'; });
 
     // 账号切换器（演示用；真实系统由登录态确定操作人）
     const sel = singleSelect({
@@ -194,26 +285,30 @@
       onChange: (v) => {
         S.accountKey = v;
         S.create.applied = false; S.create.result = null;
-        S.create.filters.storeScope = [];      // 切换账号后重置门店范围，避免范围串用
+        S.create.filters.storeScope = [];
         S.ov.couponTypes = []; S.ov.campaignIds = [];
         S.settings.denied = false;
         if (isStore()) { S.ov.storeFilter = account().scope_id; } else { S.ov.storeFilter = null; }
         E.audit(account().display_name || account().name, 'switch_account', 'staff_account', v,
           `切换工作台账号至 ${v}`, '演示账号切换');
-        // 切到没有账号管理权的门店账号时，不要停在无权页面
         if (!account().can_manage_accounts && S.page === 'settings') {
           setHash('overview');
-          toast('门店账号没有账号管理权限，已切换到总览', 'warn', 4600);
+          toast('门店账号没有账号管理权限，已切换到数据大盘', 'warn', 4600);
           return;
         }
         render();
         toast(`已切换为${account().display_name || account().name} · ${isStore() ? E.utils.storeLabel(account().scope_id) : '全港范围'}`, 'ok');
       },
     });
-    sel.style.minWidth = '230px';
+    sel.style.width = '100%';
     $('#accountSwitch', root).appendChild(sel);
 
-    $('#aiFab', root).addEventListener('click', () => toggleAI(true));
+    // 账号设置入口
+    $('#accSettings', root).addEventListener('click', () => {
+      accMenu.classList.remove('open');
+      setHash('settings');
+    });
+
     return root;
   }
 
@@ -228,14 +323,20 @@
   /* ------------------------------------------------------------ 渲染 */
   function render() {
     const acc = account();
-    // 假名/描述
+    // 顶部账号信息（头像 + 下拉）
     $('#uAvatar').textContent = acc.badge;
+    $('#uAvatarLg').textContent = acc.badge;
     $('#uName').textContent = acc.display_name || acc.name;
-    $('#uDesc').textContent = acc.scope_type === 'store' ? E.utils.storeLabel(acc.scope_id) : t('perm.ops');
-    $('#sideLabel').textContent = t('app.subtitle');
-    $('#demoTag').textContent = t('app.demo');
+    $('#uNameLg').textContent = acc.display_name || acc.name;
+    $('#uDesc').textContent = acc.scope_type === 'store'
+      ? E.utils.storeLabel(acc.scope_id) : t('perm.ops');
 
-    // 导航
+    // 语言标签
+    const loc = C.LOCALES.find((l) => l.key === S.locale);
+    if ($('#langLabel')) $('#langLabel').textContent = loc ? loc.label : '简体中文';
+    $$('.lang-item').forEach((it) => it.classList.toggle('on', it.dataset.key === S.locale));
+
+    // 导航（顶部横向）
     const nav = $('#nav');
     nav.innerHTML = '';
     const items = [
@@ -248,16 +349,13 @@
       { k: 'consumer', l: t('nav.consumer') },
     ];
     items.forEach((it) => {
-      const b = el('button', 'nav-item' + (S.page === it.k ? ' active' : ''),
-        `<span class="nav-dot"></span><span>${esc(it.l)}</span>`);
+      const b = el('button', 'nav-item' + (S.page === it.k ? ' active' : ''), esc(it.l));
       b.addEventListener('click', () => {
         if (it.k === 'overview') { S.ov.storeFilter = isStore() ? acc.scope_id : null; }
         setHash(it.k);
       });
       nav.appendChild(b);
     });
-
-    $('#pageTitle').textContent = t(pageTitleKey());
 
     const content = $('#content');
     content.innerHTML = '';
@@ -284,7 +382,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t(store ? 'ov.title.store' : 'ov.title'))}</h2>
-        <p class="page-desc">${esc(t(store ? 'ov.desc.store' : 'ov.desc', { store: store ? E.utils.storeLabel(myStore) : '' }))}</p>
       </div>`;
     const rightBox = el('div', '');
     rightBox.style.display = 'flex'; rightBox.style.gap = '12px'; rightBox.style.alignItems = 'center';
@@ -298,9 +395,6 @@
     rightBox.appendChild(exp);
     head.appendChild(rightBox);
     host.appendChild(head);
-
-    // 方案定位：所属模块 + 上下游衔接 + 研究问题（默认收起，不干扰日常使用）
-    host.appendChild(buildPositionBar());
 
     // 筛选栏
     const bar = el('div', 'filterbar');
@@ -382,8 +476,8 @@
     S.lastMetrics = metrics;
     const scopeLabel = store ? E.utils.storeLabel(myStore) : '全港门店';
 
-    const top = el('div', 'dash-top');
-    const summary = panel('业务概览', '按当前筛选条件实时汇总', DASH_ICONS.summary);
+    // 业务概览指标卡（铺满一行）
+    const summary = panel('业务概览', '', DASH_ICONS.summary);
     const mg = el('div', 'metrics metrics-4 dash-metrics');
     if (store) {
       mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.store_used'), false, false, 'tone-lemon', DASH_ICONS.check));
@@ -397,33 +491,7 @@
       mg.appendChild(metric(t('ov.metric.winback'), num(metrics.winback_yesterday), t('ov.sub.dedup'), false, false, 'tone-sand', DASH_ICONS.user));
     }
     summary.body.appendChild(mg);
-    top.appendChild(summary.root);
-
-    // 当前视角：账号信息 + 高频操作，替代原页面右上角的孤立标签
-    const profile = panel('当前视角', '权限范围与快捷入口', DASH_ICONS.user);
-    const roleLabel = acc.scope_type === 'store' ? '门店账号' : '总部账号';
-    const localeLabel = S.locale === 'zh-Hans' ? '简体中文' : S.locale === 'zh-Hant' ? '繁體中文' : 'English';
-    profile.body.innerHTML = `<div class="profile-hero">
-        <div class="profile-avatar">${esc(acc.badge || 'P')}</div>
-        <div>
-          <div class="profile-name">${esc(acc.display_name || acc.name)}</div>
-          <div class="profile-scope">${esc(scopeLabel)} · ${esc(roleLabel)}</div>
-        </div>
-      </div>
-      <div class="profile-meta">
-        <div><span>数据范围</span><b>${esc(scopeLabel)}</b></div>
-        <div><span>界面语言</span><b>${esc(localeLabel)}</b></div>
-      </div>
-      <div class="profile-actions">
-        <button class="btn btn-primary btn-sm" data-go="create">创建活动</button>
-        <button class="btn btn-ghost btn-sm" data-go="approval">审批中心</button>
-        <button class="btn btn-ghost btn-sm" data-go="records">发送记录</button>
-      </div>`;
-    profile.body.querySelectorAll('[data-go]').forEach((b) => {
-      b.addEventListener('click', () => setHash(b.dataset.go));
-    });
-    top.appendChild(profile.root);
-    host.appendChild(top);
+    host.appendChild(summary.root);
 
     // 图表区
     const grid = el('div', 'chart-grid dash-mid');
@@ -438,10 +506,6 @@
       </div>`;
     const canvas = el('canvas');
     chartCard.appendChild(canvas);
-    const upd = el('div', 't-small t-muted');
-    upd.style.marginTop = '10px';
-    upd.textContent = `${t('ov.updated')}：${metrics.updated_at}`;
-    chartCard.appendChild(upd);
     const peak = metrics.trend.reduce((best, x) => (!best || x.issued > best.issued ? x : best), null);
     const avgIssued = metrics.trend.length ? Math.round(metrics.issued / metrics.trend.length) : 0;
     const insight = el('div', 'chart-insight');
@@ -466,34 +530,41 @@
       if (!list.children.length) list.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
       side.appendChild(list);
     } else {
-      side.innerHTML = `<div class="chart-head"><div class="chart-title">${esc(t('ov.side.title'))}</div></div>`;
-      const list = el('div', 'side-list');
+      side.innerHTML = `<div class="chart-head"><div class="chart-title">券种核销率</div></div>`;
+      const list = el('div', 'viz-bars');
+      const rateTone = (v) => v >= 0.4 ? 'wine' : v >= 0.15 ? 'sand' : 'blue';
       const wb = metrics.byType.winback;
-      list.appendChild(sideRow(`${E.COUPON_TYPES.winback.name}核销率`, pct(wb ? wb.redeem_rate : 0), false));
+      list.appendChild(vizBar(E.COUPON_TYPES.winback.name, wb ? wb.redeem_rate : 0, pct(wb ? wb.redeem_rate : 0), rateTone(wb ? wb.redeem_rate : 0)));
       Object.keys(metrics.byType).forEach((k) => {
         if (k === 'winback') return;
         const x = metrics.byType[k];
         if (!x.issued) return;
-        list.appendChild(sideRow(`${x.name}核销率`, pct(x.redeem_rate), false));
+        list.appendChild(vizBar(x.name, x.redeem_rate, pct(x.redeem_rate), rateTone(x.redeem_rate)));
       });
-      const dupBlock = metrics.anomalies.filter((a) => /DUP|IDEMPOTENT/.test(a.code)).length;
-      const sendFail = metrics.anomalies.filter((a) => a.type === 'send_failed').length;
-      list.appendChild(sideRow('重复发放拦截', num(dupBlock), dupBlock > 0));
-      list.appendChild(sideRow('模拟发送失败', num(sendFail), sendFail > 0));
       side.appendChild(list);
 
+      // 异常处理：环形 + 分布柱，替代纯文字数字
+      const dupBlock = metrics.anomalies.filter((a) => /DUP|IDEMPOTENT/.test(a.code)).length;
+      const sendFail = metrics.anomalies.filter((a) => a.type === 'send_failed').length;
+      const anomBox = el('div', 'viz-anomaly');
+      anomBox.innerHTML = `<div class="viz-subtitle">异常拦截</div>`;
+      const donutRow = el('div', 'viz-anomaly-row');
+      donutRow.appendChild(vizDonut(metrics.anomalies.length, Math.max(metrics.anomalies.length, 12), '#6B0B0C', num(metrics.anomalies.length), '待查异常'));
+      const stats = el('div', 'viz-anomaly-stats');
+      stats.appendChild(vizBar('重复发放拦截', dupBlock / 12, num(dupBlock), 'sand', dupBlock > 0));
+      stats.appendChild(vizBar('发送失败', sendFail / 12, num(sendFail), 'blue', sendFail > 0));
+      donutRow.appendChild(stats);
+      anomBox.appendChild(donutRow);
+      side.appendChild(anomBox);
+
       if (metrics.anomalies.length) {
-        const dt = el('div', 't-small t-muted');
-        dt.style.marginTop = '14px';
-        dt.textContent = '最近可追查记录：';
-        side.appendChild(dt);
-        const an = el('div', '');
-        an.style.marginTop = '6px';
-        metrics.anomalies.slice(0, 4).forEach((a) => {
+        const an = el('div', 'anomaly-row-wrap');
+        an.style.marginTop = '10px';
+        metrics.anomalies.slice(0, 3).forEach((a) => {
           const line = el('button', 'anomaly-row');
           line.type = 'button';
           line.title = '跳转到发送记录查看相关任务';
-          line.innerHTML = `<span>${esc(a.label)}</span><span class="t-muted mono">${esc(a.code)}</span><span class="anomaly-go">查看 →</span>`;
+          line.innerHTML = `<span>${esc(a.label)}</span><span class="anomaly-go">查看 →</span>`;
           line.addEventListener('click', () => {
             S.records.result = a.type === 'send_failed' ? 'failed' : '';
             S.records.mode = '';
@@ -511,7 +582,7 @@
 
     // 重点活动 + 待办：把平台的核心动作直接放到总览，形成完整的看板闭环
     const bottom = el('div', 'dash-bottom');
-    const campPanel = panel('重点活动', '按状态与活动编号排序', DASH_ICONS.campaign);
+    const campPanel = panel('重点活动', '', DASH_ICONS.campaign);
     const statusTone = { running: 'green', approved: 'green', pending: 'amber', draft: 'grey', rejected: 'red', stopped: 'grey' };
     DB.campaigns.slice()
       .sort((a, b) => String(a.campaign_id).localeCompare(String(b.campaign_id)))
@@ -538,11 +609,12 @@
 
     const pending = DB.campaigns.filter((c) => c.status === 'pending');
     const anomalyCount = metrics.anomalies.length;
-    const todo = panel('待办与提醒', '审批、异常与发送链路', DASH_ICONS.alert);
-    todo.body.innerHTML = `<div class="dash-stat-row">
-        <div class="dash-stat"><span>待审批活动</span><b>${num(pending.length)}</b></div>
-        <div class="dash-stat"><span>待查异常</span><b>${num(anomalyCount)}</b></div>
-      </div>`;
+    const todo = panel('待办与提醒', '', DASH_ICONS.alert);
+    const todoViz = el('div', 'todo-viz');
+    const todoMax = Math.max(pending.length, anomalyCount, 6);
+    todoViz.appendChild(vizDonut(pending.length, todoMax, '#A66B2A', num(pending.length), '待审批活动'));
+    todoViz.appendChild(vizDonut(anomalyCount, todoMax, '#6B0B0C', num(anomalyCount), '待查异常'));
+    todo.body.appendChild(todoViz);
     pending.slice(0, 2).forEach((c) => {
       const row = el('button', 'dash-list-row');
       row.type = 'button';
@@ -592,8 +664,7 @@
     if (!metrics.issued && !metrics.used) {
       // 空态要说清「为什么空」并给下一步，而不是一句灰字
       const em = el('div', 'empty');
-      em.innerHTML = `<div class="empty-title">当前筛选范围内没有数据</div>
-        <div class="empty-desc">可能是券种、门店范围或日期条件过窄。可以清除筛选，或把日期范围放宽到近 30 天。</div>`;
+      em.innerHTML = `<div class="empty-title">当前筛选范围内没有数据</div>`;
       const acts = el('div', 'empty-actions');
       const b1 = el('button', 'btn btn-ghost btn-sm', '清除筛选');
       b1.addEventListener('click', () => {
@@ -611,30 +682,6 @@
       em.appendChild(acts);
       host.appendChild(em);
     }
-  }
-
-  /* 方案定位条：说明本产品属于哪个模块、与上下游模块怎么衔接 */
-  function buildPositionBar() {
-    const wrap = el('div', 'posbar');
-    const head = el('button', 'posbar-head');
-    head.type = 'button';
-    head.innerHTML = `<span class="posbar-tag">Module 2</span>
-      <span class="posbar-title">${esc(t('pos.bar'))}</span>
-      <span class="posbar-chain">${esc(t('pos.chain'))}</span>
-      <span class="posbar-toggle">${esc(t('pos.more'))}</span>`;
-    const body = el('div', 'posbar-body');
-    body.style.display = 'none';
-    body.innerHTML = String(t('pos.body')).split('\n').filter(Boolean)
-      .map((line) => `<div class="posbar-line">${esc(line)}</div>`).join('');
-    head.addEventListener('click', () => {
-      const isOpen = body.style.display !== 'none';
-      body.style.display = isOpen ? 'none' : 'block';
-      head.querySelector('.posbar-toggle').textContent = isOpen ? t('pos.more') : t('pos.less');
-      wrap.classList.toggle('open', !isOpen);
-    });
-    wrap.appendChild(head);
-    wrap.appendChild(body);
-    return wrap;
   }
 
   function metric(label, value, foot, alarm, small, tone, icon) {
@@ -2297,12 +2344,12 @@
 
   function renderAI() {
     const d = $('#aiDrawer');
-    const fab = $('#aiFab');
-    if (!d || !fab) return;
+    const aiSearch = $('#aiSearch');
+    if (!d) return;
     d.classList.toggle('open', S.ai.open);
-    // PRD 5.1：已有模态窗口打开时隐藏入口
+    // 已有模态窗口打开时禁用顶部搜索入口
     const modalOpen = !!document.querySelector('.overlay');
-    fab.classList.toggle('hidden', modalOpen || S.ai.open);
+    if (aiSearch) aiSearch.disabled = modalOpen;
     if (!S.ai.open) { d.innerHTML = ''; return; }
 
     const acc = account();
