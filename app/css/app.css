@@ -1437,3 +1437,21 @@ body { padding: 30px; }
 #root { height: calc(100vh - 60px); }
 .app-window { border-radius: 34px; }
 .topnav .nav-item { border-radius: 999px; }
+
+/* ==========================================================================
+ * 修复：筛选栏下拉浮层被后续玻璃卡片遮挡
+ * --------------------------------------------------------------------------
+ * 原因：backdrop-filter 会创建新的层叠上下文。筛选栏 .filterbar 与其后的
+ * .dash-panel/.chart-card 都是层叠上下文，DOM 靠后的卡片默认盖住靠前的
+ * .filterbar；其中的 .dropdown(z-index:300) 被困在父级上下文里无法越级。
+ * 做法：显式把筛选栏提升为定位元素并给足 z-index，使整条筛选栏（连同其
+ * 内部下拉/日历浮层）位于其他内容卡片之上；同时取消卡片对浮层的裁剪。
+ * ========================================================================== */
+.filterbar {
+  position: relative;
+  z-index: 60;
+}
+/* 若控件自身带 overflow，会裁掉溢出的下拉；确保浮层容器不裁剪 */
+.filterbar, .filterbar-row, .field { overflow: visible; }
+/* 下拉浮层再兜底提高层级，并避免被 transform 祖先限制 */
+.dropdown, .calendar, .dropdown-panel { z-index: 320; }
