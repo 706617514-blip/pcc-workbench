@@ -13,6 +13,31 @@
   const C = global.PCC_CONST;
   const DB = E.DB;
 
+  /* 新版看板图标（线性、统一 1.8 描边，避免与文字重心打架） */
+  const DASH_ICONS = {
+    summary: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-5 3 3 5-7"/></svg>',
+    campaign: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M14 8a5 5 0 0 1 0 8"/><path d="M17 5a9 9 0 0 1 0 14"/></svg>',
+    ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/><path d="M13 6v2M13 11v2M13 16v2"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
+    coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  };
+
+  /** 新版看板面板：统一图标 + 标题 + 内容区 */
+  function panel(title, subtitle, icon) {
+    const p = el('section', 'dash-panel');
+    const head = el('div', 'dash-panel-head');
+    head.innerHTML = `<div class="dash-panel-icon">${icon || ''}</div>
+      <div><div class="dash-panel-title">${esc(title)}</div>
+      ${subtitle ? `<div class="dash-panel-sub">${esc(subtitle)}</div>` : ''}</div>`;
+    p.appendChild(head);
+    const body = el('div', 'dash-panel-body');
+    p.appendChild(body);
+    return { root: p, body };
+  }
+
   /**
    * 标记「筛选条件已改动、等待应用」。
    * 多选下拉在勾选期间不能重建页面（否则下拉会被销毁关闭），
@@ -352,28 +377,57 @@
     row.appendChild(reset);
     host.appendChild(bar);
 
-    // 指标
+    // 指标 + 新版看板
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
+    const scopeLabel = store ? E.utils.storeLabel(myStore) : '全港门店';
 
-    const mg = el('div', 'metrics ' + (store ? 'metrics-4' : 'metrics-4'));
+    const top = el('div', 'dash-top');
+    const summary = panel('业务概览', '按当前筛选条件实时汇总', DASH_ICONS.summary);
+    const mg = el('div', 'metrics metrics-4 dash-metrics');
     if (store) {
-      const anomalies = metrics.anomalies.filter((a) => a.type === 'blocked' || a.type === 'send_failed').length;
-      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.store_used'), false));
-      mg.appendChild(metric(t('ov.metric.paid'), money(metrics.paid_amount), t('ov.sub.store_order'), false, true));
-      mg.appendChild(metric(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0), t('ov.sub.include_hq'), false));
-      mg.appendChild(metric(t('ov.metric.anomaly'), num(metrics.anomalies.length), t('ov.sub.pending_check'), metrics.anomalies.length > 0));
+      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.store_used'), false, false, 'tone-lemon', DASH_ICONS.check));
+      mg.appendChild(metric(t('ov.metric.paid'), money(metrics.paid_amount), t('ov.sub.store_order'), false, true, 'tone-blue', DASH_ICONS.coin));
+      mg.appendChild(metric(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0), t('ov.sub.include_hq'), false, false, 'tone-rose', DASH_ICONS.campaign));
+      mg.appendChild(metric(t('ov.metric.anomaly'), num(metrics.anomalies.length), t('ov.sub.pending_check'), metrics.anomalies.length > 0, false, 'tone-sand', DASH_ICONS.alert));
     } else {
-      mg.appendChild(metric(t('ov.metric.issued'), num(metrics.issued), t('ov.sub.success_issued'), false));
-      mg.appendChild(metric(t('ov.metric.claimed'), num(metrics.claimed), t('ov.sub.click'), false));
-      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.used'), false));
-      mg.appendChild(metric(t('ov.metric.winback'), num(metrics.winback_yesterday), t('ov.sub.dedup'), false));
+      mg.appendChild(metric(t('ov.metric.issued'), num(metrics.issued), t('ov.sub.success_issued'), false, false, 'tone-lemon', DASH_ICONS.ticket));
+      mg.appendChild(metric(t('ov.metric.claimed'), num(metrics.claimed), t('ov.sub.click'), false, false, 'tone-blue', DASH_ICONS.check));
+      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.used'), false, false, 'tone-rose', DASH_ICONS.campaign));
+      mg.appendChild(metric(t('ov.metric.winback'), num(metrics.winback_yesterday), t('ov.sub.dedup'), false, false, 'tone-sand', DASH_ICONS.user));
     }
-    host.appendChild(mg);
+    summary.body.appendChild(mg);
+    top.appendChild(summary.root);
+
+    // 当前视角：账号信息 + 高频操作，替代原页面右上角的孤立标签
+    const profile = panel('当前视角', '权限范围与快捷入口', DASH_ICONS.user);
+    const roleLabel = acc.scope_type === 'store' ? '门店账号' : '总部账号';
+    const localeLabel = S.locale === 'zh-Hans' ? '简体中文' : S.locale === 'zh-Hant' ? '繁體中文' : 'English';
+    profile.body.innerHTML = `<div class="profile-hero">
+        <div class="profile-avatar">${esc(acc.badge || 'P')}</div>
+        <div>
+          <div class="profile-name">${esc(acc.display_name || acc.name)}</div>
+          <div class="profile-scope">${esc(scopeLabel)} · ${esc(roleLabel)}</div>
+        </div>
+      </div>
+      <div class="profile-meta">
+        <div><span>数据范围</span><b>${esc(scopeLabel)}</b></div>
+        <div><span>界面语言</span><b>${esc(localeLabel)}</b></div>
+      </div>
+      <div class="profile-actions">
+        <button class="btn btn-primary btn-sm" data-go="create">创建活动</button>
+        <button class="btn btn-ghost btn-sm" data-go="approval">审批中心</button>
+        <button class="btn btn-ghost btn-sm" data-go="records">发送记录</button>
+      </div>`;
+    profile.body.querySelectorAll('[data-go]').forEach((b) => {
+      b.addEventListener('click', () => setHash(b.dataset.go));
+    });
+    top.appendChild(profile.root);
+    host.appendChild(top);
 
     // 图表区
-    const grid = el('div', 'chart-grid');
-    const chartCard = el('div', 'chart-card');
+    const grid = el('div', 'chart-grid dash-mid');
+    const chartCard = el('div', 'chart-card dash-chart');
     chartCard.innerHTML = `<div class="chart-head">
         <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend'))}</div>
         <div class="legend">
@@ -388,10 +442,17 @@
     upd.style.marginTop = '10px';
     upd.textContent = `${t('ov.updated')}：${metrics.updated_at}`;
     chartCard.appendChild(upd);
+    const peak = metrics.trend.reduce((best, x) => (!best || x.issued > best.issued ? x : best), null);
+    const avgIssued = metrics.trend.length ? Math.round(metrics.issued / metrics.trend.length) : 0;
+    const insight = el('div', 'chart-insight');
+    insight.innerHTML = `<div><span>覆盖天数</span><b>${num(metrics.trend.length)} 天</b></div>
+      <div><span>单日峰值发放</span><b>${num(peak ? peak.issued : 0)}</b></div>
+      <div><span>日均发放</span><b>${num(avgIssued)}</b></div>`;
+    chartCard.appendChild(insight);
     grid.appendChild(chartCard);
 
     // 侧栏：券种表现与异常 / 本店适用活动
-    const side = el('div', 'chart-card');
+    const side = el('div', 'chart-card dash-side');
     if (store) {
       side.innerHTML = `<div class="chart-head"><div class="chart-title">${esc(t('ov.side.applicable'))}</div></div>`;
       const list = el('div', 'side-list');
@@ -421,7 +482,6 @@
       list.appendChild(sideRow('模拟发送失败', num(sendFail), sendFail > 0));
       side.appendChild(list);
 
-      // 最近异常明细
       if (metrics.anomalies.length) {
         const dt = el('div', 't-small t-muted');
         dt.style.marginTop = '14px';
@@ -435,7 +495,6 @@
           line.title = '跳转到发送记录查看相关任务';
           line.innerHTML = `<span>${esc(a.label)}</span><span class="t-muted mono">${esc(a.code)}</span><span class="anomaly-go">查看 →</span>`;
           line.addEventListener('click', () => {
-            // 异常 → 发送记录：失败类直接带上「失败」筛选，避免用户在另一页再从零筛
             S.records.result = a.type === 'send_failed' ? 'failed' : '';
             S.records.mode = '';
             S.records.campaignId = a.campaign_id || '';
@@ -450,16 +509,85 @@
     grid.appendChild(side);
     host.appendChild(grid);
 
+    // 重点活动 + 待办：把平台的核心动作直接放到总览，形成完整的看板闭环
+    const bottom = el('div', 'dash-bottom');
+    const campPanel = panel('重点活动', '按状态与活动编号排序', DASH_ICONS.campaign);
+    const statusTone = { running: 'green', approved: 'green', pending: 'amber', draft: 'grey', rejected: 'red', stopped: 'grey' };
+    DB.campaigns.slice()
+      .sort((a, b) => String(a.campaign_id).localeCompare(String(b.campaign_id)))
+      .slice(0, 4)
+      .forEach((c) => {
+        const row = el('button', 'dash-list-row');
+        row.type = 'button';
+        const ctype = E.COUPON_TYPES[c.coupon_type];
+        row.innerHTML = `<div class="dash-list-main">
+            <div class="dash-list-name">${esc(c.name)}</div>
+            <div class="dash-list-sub">${esc(ctype ? ctype.name : c.coupon_type)} · ${esc(c.mode === 'auto' ? '自动规则' : '手动活动')} · ${esc(c.campaign_id)}</div>
+          </div>
+          <span class="chip chip-${statusTone[c.status] || 'grey'}">${esc(E.STATUS.campaign[c.status] || c.status)}</span>
+          <span class="dash-list-arrow">→</span>`;
+        row.addEventListener('click', () => {
+          S.manageTab = 'all';
+          setHash('manage');
+          toast(`已打开活动管理，可在列表中定位 ${c.campaign_id}`, 'ok', 2600);
+        });
+        campPanel.body.appendChild(row);
+      });
+    if (!campPanel.body.children.length) campPanel.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
+    bottom.appendChild(campPanel.root);
+
+    const pending = DB.campaigns.filter((c) => c.status === 'pending');
+    const anomalyCount = metrics.anomalies.length;
+    const todo = panel('待办与提醒', '审批、异常与发送链路', DASH_ICONS.alert);
+    todo.body.innerHTML = `<div class="dash-stat-row">
+        <div class="dash-stat"><span>待审批活动</span><b>${num(pending.length)}</b></div>
+        <div class="dash-stat"><span>待查异常</span><b>${num(anomalyCount)}</b></div>
+      </div>`;
+    pending.slice(0, 2).forEach((c) => {
+      const row = el('button', 'dash-list-row');
+      row.type = 'button';
+      row.innerHTML = `<div class="dash-list-main">
+          <div class="dash-list-name">待审批：${esc(c.name)}</div>
+          <div class="dash-list-sub">${esc(c.campaign_id)} · 提交后等待总部处理</div>
+        </div><span class="dash-list-arrow">→</span>`;
+      row.addEventListener('click', () => {
+        S.approvalTab = 'pending';
+        setHash('approval');
+      });
+      todo.body.appendChild(row);
+    });
+    metrics.anomalies.slice(0, 2).forEach((a) => {
+      const row = el('button', 'dash-list-row');
+      row.type = 'button';
+      row.innerHTML = `<div class="dash-list-main">
+          <div class="dash-list-name">${esc(a.label)}</div>
+          <div class="dash-list-sub mono">${esc(a.code)}</div>
+        </div><span class="chip chip-amber">待查</span><span class="dash-list-arrow">→</span>`;
+      row.addEventListener('click', () => {
+        S.records.result = a.type === 'send_failed' ? 'failed' : '';
+        S.records.mode = '';
+        S.records.campaignId = a.campaign_id || '';
+        setHash('records');
+      });
+      todo.body.appendChild(row);
+    });
+    if (!pending.length && !anomalyCount) {
+      const ok = el('div', 'notice green', '当前没有待审批活动或待查异常，链路运行正常。');
+      todo.body.appendChild(ok);
+    }
+    bottom.appendChild(todo.root);
+    host.appendChild(bottom);
+
     requestAnimationFrame(() => {
       const labels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
       const series = store
-        ? [{ labels, data: metrics.trend.map((x) => x.used), color: '#A5192E' }]
+        ? [{ labels, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }]
         : [
-            { labels, data: metrics.trend.map((x) => x.issued), color: '#A5192E' },
-            { labels, data: metrics.trend.map((x) => x.claimed), color: '#E9A9B4' },
-            { labels, data: metrics.trend.map((x) => x.used), color: '#B8B8BB' },
+            { labels, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
+            { labels, data: metrics.trend.map((x) => x.claimed), color: '#D9A9A5' },
+            { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: 280 });
+      lineChart(canvas, series, { height: 320 });
     });
     if (!metrics.issued && !metrics.used) {
       // 空态要说清「为什么空」并给下一步，而不是一句灰字
@@ -509,8 +637,10 @@
     return wrap;
   }
 
-  function metric(label, value, foot, alarm, small) {    const m = el('div', 'metric');
-    m.innerHTML = `<div class="metric-label">${esc(label)}</div>
+  function metric(label, value, foot, alarm, small, tone, icon) {
+    const m = el('div', 'metric' + (tone ? ' ' + tone : ''));
+    m.innerHTML = `${icon ? `<div class="metric-icon">${icon}</div>` : ''}
+      <div class="metric-label">${esc(label)}</div>
       <div class="metric-value${small ? ' small' : ''}${alarm ? ' alarm' : ''}">${esc(value)}</div>
       <div class="metric-foot">${esc(foot)}</div>`;
     return m;
