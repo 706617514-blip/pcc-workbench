@@ -617,13 +617,42 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
 .ai-fab:hover { transform: scale(1.06); background: var(--pcc-red-dark); }
 .ai-fab.hidden { display: none; }
 
+/* AI 活动助手 · 可拖拽液态玻璃浮窗（顶部拖动，位置任意，折叠不挡数据） */
 .ai-drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 96vw;
-  background: #fff; box-shadow: -8px 0 40px rgba(0, 0, 0, .14); z-index: 450;
-  display: flex; flex-direction: column;
-  transform: translateX(100%); transition: transform .24s cubic-bezier(.22, .61, .36, 1);
+  position: fixed; left: auto; right: 24px; top: auto; bottom: 24px;
+  width: 408px; height: min(620px, calc(100vh - 48px)); max-width: calc(100vw - 32px);
+  z-index: 450; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 26px;
+  background:
+    radial-gradient(320px 210px at 6% -4%, rgba(255,248,202,.76), transparent 62%),
+    radial-gradient(300px 240px at 98% 10%, rgba(205,227,232,.62), transparent 60%),
+    linear-gradient(155deg, rgba(255,253,249,.88), rgba(255,249,240,.78));
+  -webkit-backdrop-filter: blur(30px) saturate(165%);
+  backdrop-filter: blur(30px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, .92);
+  box-shadow: 0 26px 70px rgba(74,30,24,.24), 0 4px 14px rgba(74,30,24,.08),
+              inset 0 1px 0 rgba(255,255,255,.96);
+  opacity: 0; transform: translateY(16px) scale(.97); pointer-events: none;
+  transform-origin: center bottom;
+  transition: opacity .24s cubic-bezier(.22,.8,.24,1), transform .28s cubic-bezier(.22,.8,.24,1);
 }
-.ai-drawer.open { transform: none; }
+.ai-drawer.open { opacity: 1; transform: none; pointer-events: auto; }
+.ai-drawer.dragging { transition: none !important; cursor: grabbing; }
+.ai-drawer.minimized { width: 262px; height: 58px; }
+.ai-drawer.minimized .ai-body, .ai-drawer.minimized .ai-foot { display: none; }
+.ai-drawer.minimized .ai-head { padding: 10px 13px; border-bottom: 0; align-items: center; gap: 9px; }
+.ai-drawer.minimized .ai-head-logo { width: 30px; height: 30px; flex-basis: 30px; }
+.ai-drawer.minimized .ai-head-logo svg { width: 30px; height: 30px; }
+.ai-drawer.minimized .ai-head h2 { font-size: 14px; margin: 0; }
+.ai-drawer.minimized .ai-head .sub { display: none; }
+.ai-head { cursor: grab; user-select: none; }
+.ai-grip { color: var(--ink-4); font-size: 16px; line-height: 1; margin-right: -5px; }
+.ai-min {
+  width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center;
+  border: 0; border-radius: 9px; background: rgba(45,18,13,.05); color: var(--ink-3); cursor: pointer;
+}
+.ai-min:hover { background: rgba(107,11,12,.1); color: var(--pcc-red); }
+.ai-min svg { width: 15px; height: 15px; }
 .ai-head {
   padding: 18px 22px 14px; border-bottom: 1px solid var(--line-2);
   display: flex; align-items: flex-start; gap: 12px;
@@ -1367,14 +1396,6 @@ table.data thead th { background: rgba(255,248,202,.5); }
   border: 1px solid rgba(255,255,255,.9);
 }
 
-/* AI 抽屉玻璃化（在视口右侧浮起，独立于窗口） */
-.ai-drawer {
-  background: rgba(255,253,249,.9);
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
-  backdrop-filter: blur(30px) saturate(150%);
-  border-left: 1px solid rgba(255,255,255,.85);
-  box-shadow: -16px 0 60px rgba(74,30,24,.22);
-}
 
 /* 按钮在玻璃背景上增强对比 */
 .btn-primary { box-shadow: 0 6px 18px rgba(107,11,12,.28); }

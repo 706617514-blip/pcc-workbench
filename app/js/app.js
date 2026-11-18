@@ -179,6 +179,7 @@
     ai: {
       open: false, tab: 'draft', state: 'idle', // idle|generating|result|blocked|failed|denied
       history: [], lastResult: null, lastInput: '',
+      minimized: false, pos: null,   // 液态浮窗：折叠状态与记忆位置
     },
     lastMetrics: null,
   };
@@ -248,6 +249,7 @@
     host.innerHTML = '';
     S.page = pageFromHash();          // 支持 #/records 这类深链与刷新保持
     host.appendChild(buildShell());
+    initAIFloat();
     render();
     window.addEventListener('hashchange', onHashChange);
   }
@@ -282,8 +284,8 @@
     `;
     $('#brandLogo', root).innerHTML = global.UI.pccLogo(40);
 
-    // 顶部搜索栏：点击打开 AI 助手抽屉
-    $('#aiSearch', root).addEventListener('click', () => toggleAI(true));
+    // 顶部搜索栏：点击打开 AI 助手浮窗
+    $('#aiSearch', root).addEventListener('click', () => { S.ai.minimized = false; toggleAI(true); });
 
     // 语言切换（账号信息左侧）
     const langBtn = el('button', 'lang-btn', `<span class="lang-globe">◎</span><span id="langLabel">简体中文</span>`);
@@ -2299,8 +2301,65 @@
   }
 
   /* ================================================================
-   * AI 活动助手抽屉（PRD 5.2 AI 抽屉交互 / 6.3）
+   * AI 活动助手 · 可拖拽液态玻璃浮窗
+   * 顶部拖动，可放到任意位置；折叠后缩成小窗，不挡数据。
    * ==============================================================*/
+  const AI_POS_KEY = 'pcc_ai_float_pos';
+  function moveAIFloat(d, x, y) {
+    const r = d.getBoundingClientRect();
+    const maxX = Math.max(8, window.innerWidth - r.width - 8);
+    const maxY = Math.max(8, window.innerHeight - r.height - 8);
+    d.style.left = Math.max(8, Math.min(x, maxX)) + 'px';
+    d.style.top = Math.max(8, Math.min(y, maxY)) + 'px';
+    d.style.right = 'auto'; d.style.bottom = 'auto';
+  }
+  function saveAIFloat(d) {
+    const r = d.getBoundingClientRect();
+    S.ai.pos = { x: Math.round(r.left), y: Math.round(r.top) };
+    try { localStorage.setItem(AI_POS_KEY, JSON.stringify(S.ai.pos)); } catch (e) { /* 隐私模式忽略 */ }
+  }
+  function initAIFloat() {
+    const d = $('#aiDrawer');
+    if (!d || d.dataset.floatReady) return;
+    d.dataset.floatReady = '1';
+    try {
+      const saved = JSON.parse(localStorage.getItem(AI_POS_KEY) || 'null');
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+        S.ai.pos = saved;
+        d.style.left = saved.x + 'px'; d.style.top = saved.y + 'px';
+        d.style.right = 'auto'; d.style.bottom = 'auto';
+      }
+    } catch (e) { /* 忽略损坏的本地记录 */ }
+
+    let dragging = false, offX = 0, offY = 0;
+    d.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      if (!e.target.closest('.ai-head') || e.target.closest('button, input, a')) return;
+      const r = d.getBoundingClientRect();
+      dragging = true;
+      offX = e.clientX - r.left; offY = e.clientY - r.top;
+      d.setPointerCapture(e.pointerId);
+      d.classList.add('dragging');
+      e.preventDefault();
+    });
+    d.addEventListener('pointermove', (e) => {
+      if (dragging) moveAIFloat(d, e.clientX - offX, e.clientY - offY);
+    });
+    const stop = () => {
+      if (!dragging) return;
+      dragging = false; d.classList.remove('dragging');
+      saveAIFloat(d);
+    };
+    d.addEventListener('pointerup', stop);
+    d.addEventListener('pointercancel', stop);
+    window.addEventListener('resize', () => {
+      if (!S.ai.open) return;
+      const r = d.getBoundingClientRect();
+      if (r.width < 50 || r.height < 40) return;   // 过渡态尺寸不参与重算
+      moveAIFloat(d, r.left, r.top);
+    });
+  }
+
   function toggleAI(open) {
     S.ai.open = open;
     renderAI();
@@ -2315,6 +2374,7 @@
     const aiSearch = $('#aiSearch');
     if (!d) return;
     d.classList.toggle('open', S.ai.open);
+    d.classList.toggle('minimized', !!S.ai.minimized && S.ai.open);
     // 已有模态窗口打开时禁用顶部搜索入口
     const modalOpen = !!document.querySelector('.overlay');
     if (aiSearch) aiSearch.disabled = modalOpen;
@@ -2324,12 +2384,14 @@
     const caps = AI.availableCapabilities(S.page, acc);
 
     d.innerHTML = `
-      <div class="ai-head">
+      <div class="ai-head" id="aiDragHead">
+        <span class="ai-grip" title="拖动以移动浮窗">⠿</span>
         <div class="ai-head-logo">${global.UI.pccLogo(38)}</div>
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <h2>${esc(t('ai.title'))}</h2>
           <div class="sub">${esc(acc.display_name || acc.name)} · ${esc(acc.scope_type === 'store' ? E.utils.storeLabel(acc.scope_id) : '全港范围')}</div>
         </div>
+        <button class="ai-min" id="aiMin" title="折叠 / 展开">${S.ai.minimized ? DASH_ICONS.expand : DASH_ICONS.collapse}</button>
         <button class="modal-close" id="aiClose">${SVG.close}</button>
       </div>
       <div class="ai-body" id="aiBody"></div>
@@ -2342,6 +2404,15 @@
       </div>`;
 
     $('#aiClose', d).addEventListener('click', () => toggleAI(false));
+    $('#aiMin', d).addEventListener('click', () => {
+      S.ai.minimized = !S.ai.minimized;
+      renderAI();
+      // 折叠只改变尺寸，位置必须原地保留
+      if (S.ai.pos && Number.isFinite(S.ai.pos.x)) {
+        d.style.left = S.ai.pos.x + 'px';
+        d.style.top = S.ai.pos.y + 'px';
+      }
+    });
 
     // 快捷入口（按角色与当前页面启用，其余禁用）
     const tabsBox = el('div', 'ai-tabs');
