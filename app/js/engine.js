@@ -1007,6 +1007,8 @@
       paid_amount: paid,
       claim_rate: issued.length ? claimedOfIssued / issued.length : 0,
       redeem_rate: issued.length ? usedOfIssued / issued.length : 0,
+      claimed_of_issued: claimedOfIssued,
+      used_of_issued: usedOfIssued,
       winback_yesterday: winbackYesterday,
       byType, byCampaign, trend, anomalies,
       updated_at: C.NOW_LABEL,

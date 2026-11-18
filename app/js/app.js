@@ -68,6 +68,62 @@
     return wrap;
   }
 
+  /** KPI 卡：数值 + 上一等长周期对比，数字必须带上下文 */
+  function kpiCard(label, value, hint, delta, icon, tone) {
+    const m = el('div', 'metric kpi' + (tone ? ' ' + tone : ''));
+    const d = delta && delta.text
+      ? `<span class="kpi-delta${delta.good === true ? ' good' : delta.good === false ? ' bad' : ''}">${esc(delta.text)}</span>`
+      : '';
+    m.innerHTML = `${icon ? `<div class="metric-icon">${icon}</div>` : ''}
+      <div class="metric-label">${esc(label)}</div>
+      <div class="metric-value">${esc(value)}</div>
+      <div class="metric-foot">${d}<span>${esc(hint)}</span></div>`;
+    return m;
+  }
+
+  /** 转化漏斗：同一批券从发放到领取到核销的逐级损耗 */
+  function vizFunnel(stages) {
+    const wrap = el('div', 'funnel');
+    const base = stages[0] ? stages[0].value : 0;
+    stages.forEach((s, i) => {
+      const row = el('div', 'funnel-row');
+      const width = base > 0 ? Math.max(4, (s.value / base) * 100) : 0;
+      row.innerHTML = `<div class="funnel-meta">
+          <span class="funnel-label">${esc(s.label)}</span>
+          <span class="funnel-value">${esc(s.valueText)}</span>
+        </div>
+        <div class="funnel-track"><span class="funnel-fill f${i}" style="width:${width.toFixed(1)}%"></span></div>
+        <div class="funnel-note">${esc(s.note)}</div>`;
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  /** 单个券种的表现卡：核销率环形 + 发放/领取/核销三段真实数值 */
+  function couponVizCard(x) {
+    const card = el('div', 'coupon-viz');
+    const rate = x.redeem_rate || 0;
+    const c = 2 * Math.PI * 30;
+    const color = rate >= .3 ? '#6B0B0C' : rate >= .1 ? '#C98A4B' : '#7FA8B4';
+    card.innerHTML = `<div class="cp-head"><b>${esc(x.name)}</b><span>${esc(x.discount_label)}</span></div>
+      <div class="cp-main">
+        <div class="cp-ring-wrap">
+          <svg viewBox="0 0 80 80" class="cp-ring">
+            <circle cx="40" cy="40" r="30" class="cp-ring-bg"></circle>
+            <circle cx="40" cy="40" r="30" class="cp-ring-fg" style="stroke:${color};stroke-dasharray:${(c * Math.max(0, Math.min(1, rate))).toFixed(2)} ${c.toFixed(2)}"></circle>
+          </svg>
+          <div class="cp-ring-label"><b>${esc(pct(rate))}</b><span>核销率</span></div>
+        </div>
+        <div class="cp-stats">
+          <div><span>发放</span><b>${num(x.issued)}</b></div>
+          <div><span>领取</span><b>${num(x.claimed)}</b></div>
+          <div><span>核销</span><b>${num(x.used)}</b></div>
+        </div>
+      </div>`;
+    card.title = `${x.name} · 领取率 ${pct(x.claim_rate)} · 核销率 ${pct(x.redeem_rate)}`;
+    return card;
+  }
+
   /** 新版看板面板：统一图标 + 标题 + 内容区 */
   function panel(title, subtitle, icon) {
     const p = el('section', 'dash-panel');
@@ -482,25 +538,56 @@
     S.lastMetrics = metrics;
     const scopeLabel = store ? E.utils.storeLabel(myStore) : '全港门店';
 
-    // 业务概览指标卡（铺满一行）
+    // 上一等长周期：让核心数字有「比上期如何」的上下文
+    const dayCount = Math.max(1, Math.round(
+      (new Date(S.ov.dateTo) - new Date(S.ov.dateFrom)) / 86400000) + 1);
+    const prev = E.computeMetrics({
+      ...S.ov,
+      dateFrom: E.utils.addDays(S.ov.dateFrom, -dayCount),
+      dateTo: E.utils.addDays(S.ov.dateFrom, -1),
+    }, acc);
+    const deltaOf = (cur, before, isRate) => {
+      if (!before && !cur) return { text: '与上期同为 0', good: null };
+      if (!before) return { text: '上期无数据', good: null };
+      const d = isRate ? (cur - before) * 100 : ((cur - before) / before) * 100;
+      const good = d >= 0;
+      return { text: `${d >= 0 ? '↑' : '↓'} ${Math.abs(d).toFixed(1)}${isRate ? 'pt' : '%'} 较上期`, good };
+    };
+
+    // 顶层 KPI：3–4 个能触发动作的核心指标
     const summary = panel('业务概览', '', DASH_ICONS.summary);
     const mg = el('div', 'metrics metrics-4 dash-metrics');
     if (store) {
-      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.store_used'), false, false, 'tone-lemon', DASH_ICONS.check));
-      mg.appendChild(metric(t('ov.metric.paid'), money(metrics.paid_amount), t('ov.sub.store_order'), false, true, 'tone-blue', DASH_ICONS.coin));
-      mg.appendChild(metric(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0), t('ov.sub.include_hq'), false, false, 'tone-rose', DASH_ICONS.campaign));
-      mg.appendChild(metric(t('ov.metric.anomaly'), num(metrics.anomalies.length), t('ov.sub.pending_check'), metrics.anomalies.length > 0, false, 'tone-sand', DASH_ICONS.alert));
+      mg.appendChild(kpiCard(t('ov.metric.used'), num(metrics.used), '本店发生的核销',
+        deltaOf(metrics.used, prev.used, false), DASH_ICONS.check, 'tone-lemon'));
+      mg.appendChild(kpiCard(t('ov.metric.paid'), money(metrics.paid_amount), '核销关联订单实付',
+        deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-blue'));
+      mg.appendChild(kpiCard(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0),
+        '总部与本店适用的运行中活动', null, DASH_ICONS.campaign, 'tone-rose'));
+      const risk = metrics.anomalies.length;
+      mg.appendChild(kpiCard(t('ov.metric.anomaly'), num(risk),
+        risk ? '需要从发送记录复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand'));
     } else {
-      mg.appendChild(metric(t('ov.metric.issued'), num(metrics.issued), t('ov.sub.success_issued'), false, false, 'tone-lemon', DASH_ICONS.ticket));
-      mg.appendChild(metric(t('ov.metric.claimed'), num(metrics.claimed), t('ov.sub.click'), false, false, 'tone-blue', DASH_ICONS.check));
-      mg.appendChild(metric(t('ov.metric.used'), num(metrics.used), t('ov.sub.used'), false, false, 'tone-rose', DASH_ICONS.campaign));
-      mg.appendChild(metric(t('ov.metric.winback'), num(metrics.winback_yesterday), t('ov.sub.dedup'), false, false, 'tone-sand', DASH_ICONS.user));
+      mg.appendChild(kpiCard(t('ov.metric.issued'), num(metrics.issued),
+        `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`,
+        deltaOf(metrics.issued, prev.issued, false), DASH_ICONS.ticket, 'tone-lemon'));
+      mg.appendChild(kpiCard('领取率', pct(metrics.claim_rate),
+        `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`,
+        deltaOf(metrics.claim_rate, prev.claim_rate, true), DASH_ICONS.check, 'tone-blue'));
+      mg.appendChild(kpiCard('核销率', pct(metrics.redeem_rate),
+        `已核销 ${num(metrics.used_of_issued)} 张`,
+        deltaOf(metrics.redeem_rate, prev.redeem_rate, true), DASH_ICONS.campaign, 'tone-rose'));
+      mg.appendChild(kpiCard('关联订单实付', money(metrics.paid_amount), '本期核销带来的实际支付',
+        deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand'));
     }
     summary.body.appendChild(mg);
     host.appendChild(summary.root);
 
-    // 图表区
-    const grid = el('div', 'chart-grid dash-mid');
+    // 中段：左侧「趋势 + 漏斗」解释变化，右侧「券种矩阵 + 异常」定位差异
+    const grid = el('div', 'dash-mid dash-mid-v2');
+    const leftCol = el('div', 'dash-col');
+    const rightCol = el('div', 'dash-col');
+
     const chartCard = el('div', 'chart-card dash-chart');
     chartCard.innerHTML = `<div class="chart-head">
         <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend'))}</div>
@@ -519,71 +606,85 @@
       <div><span>单日峰值发放</span><b>${num(peak ? peak.issued : 0)}</b></div>
       <div><span>日均发放</span><b>${num(avgIssued)}</b></div>`;
     chartCard.appendChild(insight);
-    grid.appendChild(chartCard);
+    leftCol.appendChild(chartCard);
 
-    // 侧栏：券种表现与异常 / 本店适用活动
-    const side = el('div', 'chart-card dash-side');
+    // 漏斗：回答「同一批券在哪一步流失」
+    const funnelPanel = panel('券链路转化', '本期发放券的领取与核销损耗', DASH_ICONS.chart);
+    const claimBase = metrics.issued || 0;
+    const stepClaim = metrics.claimed_of_issued || 0;
+    const stepUsed = metrics.used_of_issued || 0;
+    funnelPanel.body.appendChild(vizFunnel([
+      { label: '成功发放', value: claimBase, valueText: `${num(claimBase)} 张`, note: '筛选范围内发放的券' },
+      { label: '已被领取', value: stepClaim, valueText: `${num(stepClaim)} 张`,
+        note: `领取率 ${pct(metrics.claim_rate)} · 较发放环节损耗 ${pct(claimBase ? 1 - metrics.claim_rate : 0)}` },
+      { label: '完成核销', value: stepUsed, valueText: `${num(stepUsed)} 张`,
+        note: `核销率 ${pct(metrics.redeem_rate)} · 领取后转化 ${pct(stepClaim ? stepUsed / stepClaim : 0)}` },
+    ]));
+    const paidStrip = el('div', 'funnel-paid');
+    paidStrip.innerHTML = `<span>关联订单实付</span><b>${esc(money(metrics.paid_amount))}</b>
+      <span class="funnel-paid-hint">来自 ${num(stepUsed)} 张已核销券</span>`;
+    funnelPanel.body.appendChild(paidStrip);
+    leftCol.appendChild(funnelPanel.root);
+
+    // 门店账号保留「本店适用活动」，避免改版后丢失门店视角
     if (store) {
-      side.innerHTML = `<div class="chart-head"><div class="chart-title">${esc(t('ov.side.applicable'))}</div></div>`;
-      const list = el('div', 'side-list');
+      const applicable = panel(t('ov.side.applicable'), '总部与本店覆盖范围内的运行中活动', DASH_ICONS.campaign);
       DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, myStore))
         .forEach((c) => {
           const r = el('div', 'side-row');
           r.innerHTML = `<span class="k">${esc(c.name)}</span>
             <span class="t-small t-muted">${esc(c.store_scope === 'all_hk' ? '总部活动' : c.store_scope === 'stores' ? '总部活动（指定门店）' : '门店活动')}</span>`;
-          list.appendChild(r);
+          applicable.body.appendChild(r);
         });
-      if (!list.children.length) list.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
-      side.appendChild(list);
-    } else {
-      side.innerHTML = `<div class="chart-head"><div class="chart-title">券种核销率</div></div>`;
-      const list = el('div', 'viz-bars');
-      const rateTone = (v) => v >= 0.4 ? 'wine' : v >= 0.15 ? 'sand' : 'blue';
-      const wb = metrics.byType.winback;
-      list.appendChild(vizBar(E.COUPON_TYPES.winback.name, wb ? wb.redeem_rate : 0, pct(wb ? wb.redeem_rate : 0), rateTone(wb ? wb.redeem_rate : 0)));
-      Object.keys(metrics.byType).forEach((k) => {
-        if (k === 'winback') return;
-        const x = metrics.byType[k];
-        if (!x.issued) return;
-        list.appendChild(vizBar(x.name, x.redeem_rate, pct(x.redeem_rate), rateTone(x.redeem_rate)));
-      });
-      side.appendChild(list);
-
-      // 异常处理：环形 + 分布柱，替代纯文字数字
-      const dupBlock = metrics.anomalies.filter((a) => /DUP|IDEMPOTENT/.test(a.code)).length;
-      const sendFail = metrics.anomalies.filter((a) => a.type === 'send_failed').length;
-      const anomBox = el('div', 'viz-anomaly');
-      anomBox.innerHTML = `<div class="viz-subtitle">异常拦截</div>`;
-      const donutRow = el('div', 'viz-anomaly-row');
-      donutRow.appendChild(vizDonut(metrics.anomalies.length, Math.max(metrics.anomalies.length, 12), '#6B0B0C', num(metrics.anomalies.length), '待查异常'));
-      const stats = el('div', 'viz-anomaly-stats');
-      stats.appendChild(vizBar('重复发放拦截', dupBlock / 12, num(dupBlock), 'sand', dupBlock > 0));
-      stats.appendChild(vizBar('发送失败', sendFail / 12, num(sendFail), 'blue', sendFail > 0));
-      donutRow.appendChild(stats);
-      anomBox.appendChild(donutRow);
-      side.appendChild(anomBox);
-
-      if (metrics.anomalies.length) {
-        const an = el('div', 'anomaly-row-wrap');
-        an.style.marginTop = '10px';
-        metrics.anomalies.slice(0, 3).forEach((a) => {
-          const line = el('button', 'anomaly-row');
-          line.type = 'button';
-          line.title = '跳转到发送记录查看相关任务';
-          line.innerHTML = `<span>${esc(a.label)}</span><span class="anomaly-go">查看 →</span>`;
-          line.addEventListener('click', () => {
-            S.records.result = a.type === 'send_failed' ? 'failed' : '';
-            S.records.mode = '';
-            S.records.campaignId = a.campaign_id || '';
-            setHash('records');
-            toast('已跳转到发送记录，并套用与该异常相关的筛选', 'ok', 2800);
-          });
-          an.appendChild(line);
-        });
-        side.appendChild(an);
-      }
+      if (!applicable.body.children.length) applicable.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
+      leftCol.appendChild(applicable.root);
     }
-    grid.appendChild(side);
+
+    // 券种矩阵：每个券种一张卡，环形显示核销率，配真实发/领/销数值
+    const couponPanel = panel('券种表现', '按券种看领取与核销效率', DASH_ICONS.ticket);
+    const couponGrid = el('div', 'coupon-grid');
+    Object.keys(metrics.byType).forEach((k) => couponGrid.appendChild(couponVizCard(metrics.byType[k])));
+    couponPanel.body.appendChild(couponGrid);
+    rightCol.appendChild(couponPanel.root);
+
+    // 异常拦截：风险分布 + 可直接跳转的明细
+    const anomalyPanel = panel('异常拦截', '本期需要复核的发放风险', DASH_ICONS.alert);
+    const dupBlock = metrics.anomalies.filter((a) => /DUP|IDEMPOTENT/.test(a.code)).length;
+    const sendFail = metrics.anomalies.filter((a) => a.type === 'send_failed').length;
+    const anomBox = el('div', 'viz-anomaly');
+    const donutRow = el('div', 'viz-anomaly-row');
+    donutRow.appendChild(vizDonut(metrics.anomalies.length, Math.max(metrics.anomalies.length, 12),
+      '#6B0B0C', num(metrics.anomalies.length), '待查异常'));
+    const stats = el('div', 'viz-anomaly-stats');
+    stats.appendChild(vizBar('重复发放拦截', dupBlock / 12, num(dupBlock), 'sand', dupBlock > 0));
+    stats.appendChild(vizBar('发送失败', sendFail / 12, num(sendFail), 'blue', sendFail > 0));
+    donutRow.appendChild(stats);
+    anomBox.appendChild(donutRow);
+    anomalyPanel.body.appendChild(anomBox);
+    if (metrics.anomalies.length) {
+      const an = el('div', 'anomaly-row-wrap');
+      an.style.marginTop = '12px';
+      metrics.anomalies.slice(0, 2).forEach((a) => {
+        const line = el('button', 'anomaly-row');
+        line.type = 'button';
+        line.innerHTML = `<span>${esc(a.label)}</span><span class="anomaly-go">查看 →</span>`;
+        line.addEventListener('click', () => {
+          S.records.result = a.type === 'send_failed' ? 'failed' : '';
+          S.records.mode = '';
+          S.records.campaignId = a.campaign_id || '';
+          setHash('records');
+          toast('已跳转到发送记录，并套用与该异常相关的筛选', 'ok', 2800);
+        });
+        an.appendChild(line);
+      });
+      anomalyPanel.body.appendChild(an);
+    } else {
+      anomalyPanel.body.appendChild(el('div', 'notice green', '本期没有异常拦截记录。'));
+    }
+    rightCol.appendChild(anomalyPanel.root);
+
+    grid.appendChild(leftCol);
+    grid.appendChild(rightCol);
     host.appendChild(grid);
 
     // 重点活动 + 待办：把平台的核心动作直接放到总览，形成完整的看板闭环
@@ -665,7 +766,7 @@
             { labels, data: metrics.trend.map((x) => x.claimed), color: '#D9A9A5' },
             { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: 320 });
+      lineChart(canvas, series, { height: 280 });
     });
     if (!metrics.issued && !metrics.used) {
       // 空态要说清「为什么空」并给下一步，而不是一句灰字

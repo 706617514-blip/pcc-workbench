@@ -646,53 +646,86 @@
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const padL = 52, padR = 16, padT = 14, padB = 40;
+    const padL = 42, padR = 18, padT = 18, padB = 34;
     const innerW = W - padL - padR, innerH = H - padT - padB;
-
     const allVals = series.reduce((a, s) => a.concat(s.data), []);
     let maxV = Math.max(1, ...allVals);
     maxV = Math.ceil(maxV / 4) * 4;
     const n = series[0] ? series[0].data.length : 0;
     const xAt = (i) => padL + (n <= 1 ? innerW / 2 : (innerW * i) / (n - 1));
     const yAt = (v) => padT + innerH - (innerH * v) / maxV;
+    const family = getComputedStyle(document.body).fontFamily;
 
-    // 网格
-    ctx.strokeStyle = '#EFEFF1'; ctx.lineWidth = 1;
-    ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
-    ctx.fillStyle = '#9A9A9A'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    // 水平参考线：弱化网格，让曲线成为主角
+    ctx.font = '11px ' + family;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let g = 0; g <= 4; g++) {
       const v = (maxV * g) / 4, y = Math.round(yAt(v)) + .5;
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+      ctx.beginPath();
+      ctx.setLineDash(g === 0 ? [] : [3, 5]);
+      ctx.strokeStyle = g === 0 ? '#E8DDD6' : '#F0E8E2';
+      ctx.lineWidth = 1;
+      ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+      ctx.fillStyle = '#A79A93';
       ctx.fillText(String(Math.round(v)), padL - 10, y);
     }
+    ctx.setLineDash([]);
 
-    // X 轴标签
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    // X 轴：最多 6 个标签，末端必显示
     const labels = (series[0] && series[0].labels) || [];
-    const step = Math.max(1, Math.ceil(n / 8));
-    for (let i = 0; i < n; i += step) {
-      ctx.fillText(labels[i] || '', xAt(i), padT + innerH + 12);
-    }
+    const labelStep = Math.max(1, Math.ceil(Math.max(0, n - 1) / 5));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#A79A93';
+    const xs = [];
+    for (let i = 0; i < n; i += labelStep) xs.push(i);
+    if (n && xs[xs.length - 1] !== n - 1) xs.push(n - 1);
+    xs.forEach((i) => ctx.fillText(labels[i] || '', xAt(i), padT + innerH + 12));
 
-    // 线
-    series.forEach((s) => {
+    const rgba = (hex, a) => {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      return m ? `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})` : `rgba(107,11,12,${a})`;
+    };
+    // Catmull-Rom → 三次贝塞尔，曲线平滑但不伪造数据点
+    const trace = (pts) => {
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+        ctx.bezierCurveTo(
+          p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+          p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
+          p2.x, p2.y);
+      }
+    };
+
+    series.forEach((s, si) => {
       if (!s.data.length) return;
-      if (s.dashed) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
-      ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2.2;
-      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      const pts = s.data.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+      if (si === 0 && opt.area !== false) {
+        const grad = ctx.createLinearGradient(0, padT, 0, padT + innerH);
+        grad.addColorStop(0, rgba(s.color, .22));
+        grad.addColorStop(1, rgba(s.color, 0));
+        ctx.beginPath();
+        trace(pts);
+        ctx.lineTo(pts[pts.length - 1].x, padT + innerH);
+        ctx.lineTo(pts[0].x, padT + innerH);
+        ctx.closePath();
+        ctx.fillStyle = grad; ctx.fill();
+      }
       ctx.beginPath();
-      s.data.forEach((v, i) => { const x = xAt(i), y = yAt(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      trace(pts);
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = si === 0 ? 2.6 : 1.9;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.globalAlpha = si === 0 ? 1 : .82;
       ctx.stroke();
-      if (s.points !== false) {
-        s.data.forEach((v, i) => {
-          if (i % step !== 0 && i !== n - 1) return;
-          ctx.beginPath(); ctx.arc(xAt(i), yAt(v), 3.4, 0, Math.PI * 2);
-          ctx.fillStyle = '#fff'; ctx.fill();
-          ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.stroke();
-        });
+      ctx.globalAlpha = 1;
+      // 仅标出终点，避免满屏圆点
+      if (pts.length) {
+        const last = pts[pts.length - 1];
+        ctx.beginPath(); ctx.arc(last.x, last.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2.2; ctx.stroke();
       }
     });
-    ctx.setLineDash([]);
   }
 
   /* ---------------------------------------------------- 图标：PCC logo */
