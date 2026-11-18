@@ -1467,3 +1467,14 @@ body { padding: 30px; }
 /* 顶栏内的下拉浮层再显式抬升，确保高于顶栏自身背景层 */
 .appbar .lang-panel { z-index: 120; }
 .appbar .account-dropdown { z-index: 120; }
+
+/* --------------------------------------------------------------------------
+ * 修复③：区块之间间距为 0 导致玻璃卡片边缘视觉重叠
+ * 审计发现两处相邻区块 bottom==top（gap:0）：
+ *  - 发送记录：裸 .metrics 后紧跟明细 .card
+ *  - 数据大盘：作为 content 直接子节点的 .dash-panel 后紧跟 .dash-mid
+ * 玻璃卡片带圆角与外发光，0 间距会糊在一起。统一补足 20px 呼吸间距。
+ * 用「父级 #content 的直接子元素」限定，避免影响卡片内部嵌套的 metrics。
+ * -------------------------------------------------------------------------- */
+#content > .metrics { margin-bottom: 20px; }
+#content > .dash-panel { margin-bottom: 20px; }
