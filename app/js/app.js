@@ -1,6 +1,6 @@
 /* ============================================================================
  * PCC 会员营销工作台 —— 应用主程序 (app.js)
- * 页面：总览 / 活动创建 / 活动管理 / 审批中心 / 发送记录 / 设置 + 消费端原型
+ * 页面：数据大盘 / 活动创建 / 活动管理 / 审批中心 / 发送记录 / 设置（账号菜单进入）
  * 依据 PRD 5.1 信息架构与 5.2 核心后台页面原型。
  * ==========================================================================*/
 (function (global) {
@@ -23,6 +23,7 @@
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
     coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>',
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.63h.08A1.7 1.7 0 0 0 10.11 3.07V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.37 9v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>',
   };
 
   /* ---------------------------------------------- 可视化组件（纯 SVG / DOM） */
@@ -116,7 +117,6 @@
     records: { mode: '', campaignId: '', result: '', range: 'week', sortBy: 'time', sortDir: -1 },
     settings: { denied: false },
     approvalHighlight: null,   // 刚提交的活动编号（审批页高亮）
-    consumerHint: null,        // 原型里领取成功后，引导回总览看指标变化
     // AI 抽屉
     ai: {
       open: false, tab: 'draft', state: 'idle', // idle|generating|result|blocked|failed|denied
@@ -135,7 +135,7 @@
    *   · 浏览器前进 / 后退可用
    *   · 可以直接把某个页面的链接发给别人（如 #/records）
    * --------------------------------------------------------------*/
-  const PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings', 'consumer'];
+  const PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings'];
 
   function pageFromHash() {
     const m = /^#\/([a-z]+)/.exec(location.hash || '');
@@ -271,7 +271,7 @@
       <div class="acc-section-label">切换身份</div>
       <div id="accountSwitch"></div>
       <div class="acc-divider"></div>
-      <button class="acc-action" id="accSettings">${DASH_ICONS.check}<span>账号与权限设置</span><span class="acc-arrow">→</span></button>`;
+      <button class="acc-action" id="accSettings">${DASH_ICONS.settings}<span>账号与权限设置</span><span class="acc-arrow">→</span></button>`;
     accMenu.appendChild(accTrigger);
     accMenu.appendChild(accPanel);
     $('#accountMenu', root).appendChild(accMenu);
@@ -325,7 +325,7 @@
     return {
       overview: isStore() ? 'ov.title.store' : 'ov.title',
       create: 'cr.title', manage: 'mg.title', approval: 'ap.title',
-      records: 'sr.title', settings: 'st.title', consumer: 'nav.consumer',
+      records: 'sr.title', settings: 'st.title',
     }[S.page];
   }
 
@@ -354,8 +354,6 @@
       { k: 'manage', l: t('nav.manage') },
       { k: 'approval', l: t('nav.approval') },
       { k: 'records', l: t('nav.records') },
-      { k: 'settings', l: t('nav.settings') },
-      { k: 'consumer', l: t('nav.consumer') },
     ];
     items.forEach((it) => {
       const b = el('button', 'nav-item' + (S.page === it.k ? ' active' : ''), esc(it.l));
@@ -371,7 +369,6 @@
     ({
       overview: renderOverview, create: renderCreate, manage: renderManage,
       approval: renderApproval, records: renderRecords, settings: renderSettings,
-      consumer: renderConsumer,
     }[S.page] || renderOverview)(content);
 
     renderAI();
@@ -2078,265 +2075,6 @@
       }
       mo.close(); render();
     });
-  }
-
-  /* ================================================================
-   * 页面 7 —— 消费端静态原型（PRD 5.5 / 9.2 图 21）
-   * ==============================================================*/
-  function renderConsumer(host) {
-    // 优先展示近 2 天、尚未领取的回流券，形成完整演示链路
-    const pickCustomer = () => {
-      const todayClaimable = E.DB.couponInstance.filter((c) =>
-        c.status === 'unclaimed' && c.coupon_type === 'winback');
-      if (todayClaimable.length) return todayClaimable[todayClaimable.length - 1].customer_id;
-      return DB.customers[0].customer_id;
-    };
-    const state = {
-      cid: pickCustomer(),
-      screen: 'home',       // home | rewards | detail
-      rewardsTab: 'unclaimed',
-    };
-    function coupons() { return E.DB.couponInstance.filter((c) => c.customer_id === state.cid); }
-
-    const head = el('div', 'page-head');
-    head.innerHTML = `<div>
-        <h2 class="page-title">消费端静态原型</h2>
-        <p class="page-desc">参考现有 PCC App 首页与「我的奖赏」入口，仅制作待领取、领取操作与券详情的静态原型；实际 App 页面与核销入口待接入确认。</p>
-      </div>`;
-    const lim = el('div', 'chip chip-amber', '静态原型 · 不代表真实 App');
-    head.appendChild(lim);
-    host.appendChild(head);
-
-    host.appendChild(el('div', 'notice grey', '本期消费端只提供静态原型，不改造现有 PCC App。以下券数据来自工作台的模拟发放结果，可直接点击「領取優惠券」完成领取，随后在后台「总览」中查看领取与核销指标变化。'));
-
-    // 领取成功后：引导回后台看指标变化（否则用户不知道下一步去哪）
-    if (S.consumerHint) {
-      const hb = el('div', 'notice');
-      hb.style.display = 'flex';
-      hb.style.alignItems = 'center';
-      hb.style.gap = '14px';
-      hb.style.flexWrap = 'wrap';
-      hb.innerHTML = `<span>已领取「${esc(S.consumerHint.name)}」，有效期至 ${esc(S.consumerHint.valid)}。这次领取已计入后台的「主动领取」，可以去总览看变化。</span>`;
-      const go = el('button', 'btn btn-primary btn-sm', '去总览看变化 →');
-      go.addEventListener('click', () => setHash('overview'));
-      const closeHint = el('button', 'btn btn-ghost btn-sm', '知道了');
-      closeHint.addEventListener('click', () => { S.consumerHint = null; render(); });
-      hb.appendChild(go);
-      hb.appendChild(closeHint);
-      host.appendChild(hb);
-    }
-
-    const wrap = el('div', 'app-shell');
-    wrap.style.marginTop = '22px';
-
-    // 三部手机分别展示三个状态
-    wrap.appendChild(phoneHome());
-    wrap.appendChild(phoneRewards());
-    wrap.appendChild(phoneDetail());
-    host.appendChild(wrap);
-
-    const actions = el('div', '');
-    actions.style.cssText = 'display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:6px';
-    const b1 = el('button', 'btn btn-ghost', '换一位会员演示');
-    b1.addEventListener('click', () => {
-      const list = E.DB.couponInstance.filter((c) => c.coupon_type === 'winback');
-      const idx = list.findIndex((c) => c.customer_id === state.cid);
-      const next = list[(idx + 1) % list.length];
-      state.cid = next.customer_id;
-      render();
-      toast(`已切换演示会员 ${next.customer_id}`, 'ok');
-    });
-    actions.appendChild(b1);
-    const b2 = el('button', 'btn btn-primary', '模拟核销一张已领取券');
-    b2.addEventListener('click', async () => {
-      const claimed = coupons().filter((c) => c.status === 'claimed');
-      if (!claimed.length) { toast('该会员当前没有已领取的券，请先领取', 'warn'); return; }
-      const cp = claimed[0];
-      const ct = E.COUPON_TYPES[cp.coupon_type];
-      const r = await confirm({
-        title: '模拟核销',
-        message: `模拟一笔 HK$68 的订单核销「${ct.name}」（${ct.discount_label}）？`,
-        detail: ct.stack_points ? '该券可与积分同单使用：先以积分抵付，再对剩余金额应用折扣。' : '该券不可与积分同单使用。',
-        okText: '核销', reasonLabel: '是否使用积分抵付', reasonPlaceholder: '填写积分数量，留空表示不使用',
-      });
-      if (!r) return;
-      const points = parseInt(r.reason, 10);
-      const usePoints = !isNaN(points) && points > 0 ? points : (ct.stack_points ? 400 : 0);
-      const res = E.redeemCoupon(cp.coupon_id, 68, ct.stack_points ? usePoints : 0, state.cid);
-      if (!res.ok) { toast(res.error, 'err', 4200); return; }
-      toast(`核销成功：原价 HK$68，积分抵付 HK$${res.redemption.point_value}，实付 HK$${res.redemption.paid_amount}`, 'ok', 4600);
-      render();
-    });
-    actions.appendChild(b2);
-    host.appendChild(actions);
-    const n2 = el('div', 't-small t-muted');
-    n2.style.cssText = 'text-align:center;margin-top:12px';
-    n2.textContent = `当前演示会员：${state.cid} · 共 ${coupons().length} 张券`;
-    host.appendChild(n2);
-
-    /* -------- 手机 1：首页 -------- */
-    function phoneHome() {
-      const unclaimed = coupons().filter((c) => c.status === 'unclaimed').length;
-      const box = el('div', 'phone-wrap');
-      box.innerHTML = `<div class="proto-label">首页（已登录）</div>`;
-      const p = el('div', 'phone');
-      p.innerHTML = `<div class="phone-screen">
-        <div class="ph-status"><span>9:41</span><span>▮▮▮ ⌾ ▰</span></div>
-        <div class="ph-body">
-          <div class="ph-head">
-            <div class="ph-avatar"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A8A8E" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg></div>
-            <div class="ph-hello">${esc(t('app.home.greeting'))}</div>
-          </div>
-          <div class="ph-notice">
-            <span>${esc(t('app.home.banner', { n: unclaimed }))}</span>
-            <span style="color:var(--pcc-red-light);font-size:16px">›</span>
-          </div>
-          <div class="ph-banner">
-            <div><div class="t1">${esc(t('app.member_only'))}</div>
-              <div class="t2">深圳直通巴<br>即享减 $20 優惠</div></div>
-            <svg width="52" height="42" viewBox="0 0 52 42" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="7" width="46" height="22" rx="4"/><path d="M10 29v5M42 29v5M3 17h46"/><circle cx="13" cy="33" r="3" fill="#fff"/><circle cx="39" cy="33" r="3" fill="#fff"/></svg>
-          </div>
-          <div class="ph-quick">
-            ${quickIcon('我的訂單', '<path d="M4 7h16M4 12h16M4 17h10"/>', false)}
-            ${quickIcon('我的獎賞', '<rect x="3" y="8" width="18" height="11" rx="2"/><path d="M12 8v11M8 8a2.5 2.5 0 1 1 4-2 2.5 2.5 0 1 1 4 2"/>', unclaimed > 0, unclaimed)}
-            ${quickIcon('手機增值', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 9v6M9 12h6"/>', false)}
-            ${quickIcon('交易紀錄', '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>', false)}
-          </div>
-          <div class="ph-sec-title">最新消息</div>
-          <div class="ph-news-card">
-            <div><div class="t1">${esc(t('app.limited'))}</div>
-              <div class="t2">Cheers Monday<br>手調飲品 9 折</div></div>
-            <svg width="44" height="44" viewBox="0 0 48 48" fill="none" stroke="#fff" stroke-width="2" opacity=".85">
-              <circle cx="24" cy="24" r="21"/><path d="M14 21c0-1.1.9-2 2-2h1.2c.5-3.2 3.3-5.6 6.8-5.6 3.8 0 6.9 3.1 6.9 6.9 0 .3 0 .6-.1.9.9.3 1.6 1.2 1.6 2.2"/>
-              <path d="M17 21h14"/><path d="M12 25h24l-2.4 6.5c-.7 1.9-2.5 3.2-4.5 3.2H18.9c-2 0-3.8-1.3-4.5-3.2L12 25z"/></svg>
-          </div>
-          <div class="ph-dots"><span class="ph-dot on"></span><span class="ph-dot"></span><span class="ph-dot"></span></div>
-        </div>
-        ${phTabbar(0)}
-      </div>`;
-      box.appendChild(p);
-      return box;
-    }
-    function quickIcon(label, svgPath, badge, n) {
-      return `<div class="ph-q">
-        ${badge ? `<span class="ph-badge">${n}</span>` : ''}
-        <svg class="qi" viewBox="0 0 24 24" fill="none" stroke="#C9C9CC" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${svgPath}</svg>
-        <span>${esc(label)}</span></div>`;
-    }
-    function phTabbar(active) {
-      const tabs = [
-        ['主頁', 0, '<path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>'],
-        ['訂購', 1, '<path d="M4 5h16l-1.5 11H6z"/><path d="M4 5L3 2H1"/>'],
-        ['禮賓', 2, '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 11h18M12 7v13"/>'],
-        ['分店', 3, '<path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'],
-        ['我的', 4, '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>'],
-      ];
-      return `<div class="ph-tabbar">${tabs.map(([l, i, d]) =>
-        `<div class="ph-tab${i === active ? ' on' : ''}">
-          <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>
-          <span>${esc(l)}</span></div>`).join('')}</div>`;
-    }
-
-    /* -------- 手机 2：我的奖赏 -------- */
-    function phoneRewards() {
-      const unclaimedList = coupons().filter((c) => c.status === 'unclaimed');
-      const claimedList = coupons().filter((c) => c.status === 'claimed');
-      const usedList = coupons().filter((c) => c.status === 'used' || c.status === 'expired');
-      const first = unclaimedList[0] || claimedList[0] || usedList[0];
-      const box = el('div', 'phone-wrap');
-      box.innerHTML = `<div class="proto-label">我的獎賞（待領取）</div>`;
-      const p = el('div', 'phone');
-      let cardHtml = `<div class="empty" style="color:#6E6E73;padding:40px 20px">${esc(t('app.rewards.empty'))}</div>`;
-      if (first) {
-        const ct = E.COUPON_TYPES[first.coupon_type];
-        cardHtml = `<div class="coupon-card">
-            <div class="cc-top">${esc(t('app.rewards.tier'))}</div>
-            <div class="cc-name">${esc(ct.name)}</div>
-            <div class="cc-disc">${esc(ct.discount_label)}</div>
-            <div class="cc-valid">${esc(t('app.rewards.valid', { n: ct.validity_days }))}</div>
-            <svg class="cc-logo" width="52" height="52" viewBox="0 0 48 48" fill="none" stroke="#fff" stroke-width="2">
-              <circle cx="24" cy="24" r="21"/><path d="M14 21c0-1.1.9-2 2-2h1.2c.5-3.2 3.3-5.6 6.8-5.6 3.8 0 6.9 3.1 6.9 6.9 0 .3 0 .6-.1.9.9.3 1.6 1.2 1.6 2.2"/>
-              <path d="M17 21h14"/><path d="M12 25h24l-2.4 6.5c-.7 1.9-2.5 3.2-4.5 3.2H18.9c-2 0-3.8-1.3-4.5-3.2L12 25z"/></svg>
-          </div>
-          <div class="cc-note">${esc(t('app.rewards.exclusive', { n: 30 }))}<br>${esc(t('app.rewards.no_start'))}</div>`;
-      }
-      p.innerHTML = `<div class="phone-screen">
-        <div class="ph-status"><span>9:41</span><span>▮▮▮ ⌾ ▰</span></div>
-        <div class="ph-body">
-          <div class="ph-back"><span style="font-size:20px">‹</span> 我的獎賞</div>
-          <div class="ph-tabs2">
-            <div class="on">待領取${unclaimedList.length ? ` (${unclaimedList.length})` : ''}</div>
-            <div>可使用${claimedList.length ? ` (${claimedList.length})` : ''}</div>
-            <div>已使用</div>
-          </div>
-          ${cardHtml}
-          <button class="ph-cta" id="claimBtn" ${first && first.status === 'unclaimed' ? '' : 'disabled'}>${esc(t('app.rewards.claim'))}</button>
-        </div>
-        ${phTabbar(4)}
-      </div>`;
-      box.appendChild(p);
-      const btn = $('#claimBtn', p);
-      if (btn && first && first.status === 'unclaimed') {
-        btn.addEventListener('click', () => {
-          const r = E.claimCoupon(first.coupon_id, state.cid);
-          if (!r.ok) { toast(r.error, 'err'); return; }
-          toast(`领取成功：${E.COUPON_TYPES[r.coupon.coupon_type].name}，有效期至 ${r.coupon.valid_until}`, 'ok', 4400);
-          // 领取后会改变后台的领取/核销指标，给一个直达入口
-          S.consumerHint = {
-            name: E.COUPON_TYPES[r.coupon.coupon_type].name,
-            valid: r.coupon.valid_until,
-          };
-          render();
-        });
-      }
-      return box;
-    }
-
-    /* -------- 手机 3：券详情 -------- */
-    function phoneDetail() {
-      const claimed = coupons().filter((c) => c.status === 'claimed');
-      const cp = claimed[0] || coupons().filter((c) => c.status === 'unclaimed')[0];
-      const box = el('div', 'phone-wrap');
-      box.innerHTML = `<div class="proto-label">優惠券詳情</div>`;
-      const p = el('div', 'phone');
-      let inner;
-      if (!cp) {
-        inner = `<div class="ph-back"><span style="font-size:20px">‹</span> ${esc(t('app.rewards.detail'))}</div>
-          <div class="empty" style="color:#6E6E73;padding:50px 20px">${esc(t('app.rewards.empty'))}</div>`;
-      } else {
-        const ct = E.COUPON_TYPES[cp.coupon_type];
-        const statusText = cp.status === 'claimed' ? t('app.rewards.claimed')
-          : cp.status === 'used' ? '已使用' : cp.status === 'expired' ? '已過期' : '待領取';
-        const validity = cp.status === 'unclaimed' && !cp.valid_until
-          ? t('app.rewards.no_start') : (cp.valid_until ? `至 ${cp.valid_until}` : '—');
-        inner = `<div class="ph-back"><span style="font-size:20px">‹</span> ${esc(t('app.rewards.detail'))}</div>
-          <div class="ph-detail-hero">
-            <span class="chip" style="background:#2A2A2C;color:#EDEDF0;height:26px">${esc(statusText)}</span>
-            <div class="coupon-card" style="margin:16px 0 0">
-              <div class="cc-top">${esc(t('app.rewards.tier'))}</div>
-              <div class="cc-name">${esc(ct.name)}</div>
-              <div class="cc-disc">${esc(ct.discount_label)}</div>
-              <div class="cc-valid">${esc(validity)}</div>
-              <svg class="cc-logo" width="52" height="52" viewBox="0 0 48 48" fill="none" stroke="#fff" stroke-width="2">
-                <circle cx="24" cy="24" r="21"/><path d="M14 21c0-1.1.9-2 2-2h1.2c.5-3.2 3.3-5.6 6.8-5.6 3.8 0 6.9 3.1 6.9 6.9 0 .3 0 .6-.1.9.9.3 1.6 1.2 1.6 2.2"/>
-                <path d="M17 21h14"/><path d="M12 25h24l-2.4 6.5c-.7 1.9-2.5 3.2-4.5 3.2H18.9c-2 0-3.8-1.3-4.5-3.2L12 25z"/></svg>
-            </div>
-          </div>
-          <div style="font-size:15.5px;font-weight:700;padding:24px 20px 6px">${esc(t('app.rewards.usage'))}</div>
-          <div class="ph-kv"><span class="k">${esc(t('app.rewards.stores'))}</span><span class="v">${esc(ct.scope === 'all_hk' ? '全港門店' : E.utils.storeLabel(cp.store_id))}</span></div>
-          <div class="ph-kv"><span class="k">${esc(t('app.rewards.points'))}</span>
-            <span class="v" style="max-width:62%;text-align:right">${esc(ct.stack_points ? t('app.rewards.points_yes') : t('app.rewards.points_no'))}</span></div>
-          <div class="ph-kv"><span class="k">有效期限</span><span class="v">${esc(validity)}</span></div>
-          <div class="ph-note">${esc(t('app.rewards.pos_note'))}</div>`;
-      }
-      p.innerHTML = `<div class="phone-screen">
-        <div class="ph-status"><span>9:41</span><span>▮▮▮ ⌾ ▰</span></div>
-        <div class="ph-body">${inner}</div>
-        ${phTabbar(4)}
-      </div>`;
-      box.appendChild(p);
-      return box;
-    }
   }
 
   /* ================================================================
