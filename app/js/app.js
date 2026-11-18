@@ -24,6 +24,8 @@
     coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>',
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.63h.08A1.7 1.7 0 0 0 10.11 3.07V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.37 9v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>',
+    expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/></svg>',
+    collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h5V3M21 8h-5V3M16 21v-5h5M8 21v-5H3"/></svg>',
   };
 
   /* ---------------------------------------------- 可视化组件（纯 SVG / DOM） */
@@ -160,7 +162,7 @@
     // 看板筛选（PRD 5.1）
     ov: {
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
-      storeFilter: null, activityFilter: null,
+      storeFilter: null, activityFilter: null, focus: null,
     },
     // 活动创建页筛选
     create: {
@@ -533,6 +535,99 @@
     row.appendChild(reset);
     host.appendChild(bar);
 
+    /* ---------- 模块聚焦：原位放大 / 底部缩略条 / 沿原路收回 ---------- */
+    const board = el('div', 'dash-board');
+    const toolbar = el('div', 'focus-toolbar');
+    toolbar.innerHTML = `<button class="focus-back" type="button">${DASH_ICONS.collapse}<span>返回数据大盘</span></button>
+      <span class="focus-crumb"></span><span class="focus-tip">点击下方缩略条切换模块 · Esc 返回</span>`;
+    board.appendChild(toolbar);
+    const stage = el('div', 'dash-stage');
+    const strip = el('div', 'dash-thumbstrip');
+    board.appendChild(stage);
+    board.appendChild(strip);
+    host.appendChild(board);
+
+    const mods = [];
+    /** 包装一个看板模块：保留原布局位置，聚焦时移动到 stage / strip */
+    function addMod(cfg) {
+      const wrap = el('div', 'dash-module');
+      wrap.dataset.mod = cfg.key;
+      const full = el('div', 'mod-full');
+      full.appendChild(cfg.node);
+      wrap.appendChild(full);
+      const expand = el('button', 'mod-expand');
+      expand.type = 'button';
+      expand.title = '放大查看详情';
+      expand.setAttribute('aria-label', '放大查看详情');
+      expand.innerHTML = DASH_ICONS.expand;
+      expand.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
+      wrap.appendChild(expand);
+      const thumb = el('button', 'mod-thumb');
+      thumb.type = 'button';
+      thumb.innerHTML = `<span class="thumb-ic">${cfg.icon || ''}</span>
+        <span class="thumb-txt"><b>${esc(cfg.title)}</b><span>${esc(cfg.meta || '')}</span></span>`;
+      thumb.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
+      wrap.appendChild(thumb);
+      wrap.addEventListener('click', (ev) => {
+        if (S.ov.focus) return;
+        if (ev.target.closest('button, a, input, select, canvas, .dropdown-panel, .calendar')) return;
+        focusTo(cfg.key);
+      });
+      cfg.home.appendChild(wrap);
+      mods.push({ key: cfg.key, title: cfg.title, wrap, home: cfg.home, anchor: cfg.anchor || null });
+      return wrap;
+    }
+
+    /** FLIP：记录旧位置 → 改 DOM → 从旧位置动画回新位置 */
+    function focusTo(key, instant) {
+      const cur = S.ov.focus;
+      if (cur === key) return;
+      const first = new Map();
+      mods.forEach((m) => {
+        if (m.wrap.isConnected) first.set(m.wrap, m.wrap.getBoundingClientRect());
+      });
+      // 先停掉上一轮动画，避免带着 transform 测量新位置
+      mods.forEach((m) => m.wrap.getAnimations().forEach((a) => a.cancel()));
+
+      if (key) {
+        board.classList.add('is-focused');
+        const target = mods.find((m) => m.key === key);
+        if (!target) return;
+        stage.appendChild(target.wrap);
+        mods.filter((m) => m !== target).forEach((m) => strip.appendChild(m.wrap));
+        toolbar.querySelector('.focus-crumb').innerHTML = `当前详情：<b>${esc(target.title)}</b>`;
+      } else {
+        board.classList.remove('is-focused');
+        mods.forEach((m) => {
+          if (m.anchor && m.anchor.parentNode === m.home) m.home.insertBefore(m.wrap, m.anchor);
+          else m.home.appendChild(m.wrap);
+        });
+      }
+      S.ov.focus = key;
+
+      if (!instant) {
+        mods.forEach((m) => {
+          const f = first.get(m.wrap);
+          if (!f) return;
+          const l = m.wrap.getBoundingClientRect();
+          if (l.width < 1 || l.height < 1) return;
+          const dx = f.left - l.left, dy = f.top - l.top;
+          const sx = f.width / l.width, sy = f.height / l.height;
+          if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < .01 && Math.abs(sy - 1) < .01) return;
+          m.wrap.animate([
+            { transform: `translate(${dx}px,${dy}px) scale(${sx},${sy})`, opacity: .82 },
+            { transform: 'none', opacity: 1 },
+          ], { duration: 460, easing: 'cubic-bezier(.22,.8,.22,1)' });
+        });
+      }
+      if (key === 'trend' || cur === 'trend') requestAnimationFrame(drawTrend);
+    }
+    toolbar.querySelector('.focus-back').addEventListener('click', () => focusTo(null));
+
+    const gridAnchorEl = el('div', 'dash-grid-anchor');
+    host.appendChild(gridAnchorEl);
+    const gridAnchor = () => gridAnchorEl;
+
     // 指标 + 新版看板
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
@@ -581,7 +676,10 @@
         deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand'));
     }
     summary.body.appendChild(mg);
-    host.appendChild(summary.root);
+    addMod({ key: 'summary', title: '业务概览', icon: DASH_ICONS.summary,
+      meta: store ? `本店核销 ${num(metrics.used)} · 实付 ${money(metrics.paid_amount)}`
+                  : `发放 ${num(metrics.issued)} · 核销率 ${pct(metrics.redeem_rate)}`,
+      node: summary.root, home: host, anchor: gridAnchor() });
 
     // 中段：左侧「趋势 + 漏斗」解释变化，右侧「券种矩阵 + 异常」定位差异
     const grid = el('div', 'dash-mid dash-mid-v2');
@@ -606,7 +704,9 @@
       <div><span>单日峰值发放</span><b>${num(peak ? peak.issued : 0)}</b></div>
       <div><span>日均发放</span><b>${num(avgIssued)}</b></div>`;
     chartCard.appendChild(insight);
-    leftCol.appendChild(chartCard);
+    addMod({ key: 'trend', title: '发放核销趋势', icon: DASH_ICONS.chart,
+      meta: `${num(metrics.trend.length)} 天 · 单日峰值 ${num(peak ? peak.issued : 0)}`,
+      node: chartCard, home: leftCol });
 
     // 漏斗：回答「同一批券在哪一步流失」
     const funnelPanel = panel('券链路转化', '本期发放券的领取与核销损耗', DASH_ICONS.chart);
@@ -624,7 +724,9 @@
     paidStrip.innerHTML = `<span>关联订单实付</span><b>${esc(money(metrics.paid_amount))}</b>
       <span class="funnel-paid-hint">来自 ${num(stepUsed)} 张已核销券</span>`;
     funnelPanel.body.appendChild(paidStrip);
-    leftCol.appendChild(funnelPanel.root);
+    addMod({ key: 'funnel', title: '券链路转化', icon: DASH_ICONS.chart,
+      meta: `${num(claimBase)} → ${num(stepUsed)} 张 · 核销率 ${pct(metrics.redeem_rate)}`,
+      node: funnelPanel.root, home: leftCol });
 
     // 门店账号保留「本店适用活动」，避免改版后丢失门店视角
     if (store) {
@@ -637,7 +739,9 @@
           applicable.body.appendChild(r);
         });
       if (!applicable.body.children.length) applicable.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
-      leftCol.appendChild(applicable.root);
+      addMod({ key: 'applicable', title: t('ov.side.applicable'), icon: DASH_ICONS.campaign,
+        meta: `${num(applicable.body.children.length)} 个运行中活动`,
+        node: applicable.root, home: leftCol });
     }
 
     // 券种矩阵：每个券种一张卡，环形显示核销率，配真实发/领/销数值
@@ -645,7 +749,9 @@
     const couponGrid = el('div', 'coupon-grid');
     Object.keys(metrics.byType).forEach((k) => couponGrid.appendChild(couponVizCard(metrics.byType[k])));
     couponPanel.body.appendChild(couponGrid);
-    rightCol.appendChild(couponPanel.root);
+    addMod({ key: 'coupons', title: '券种表现', icon: DASH_ICONS.ticket,
+      meta: `${num(Object.keys(metrics.byType).length)} 类券 · 点击看单券详情`,
+      node: couponPanel.root, home: rightCol });
 
     // 异常拦截：风险分布 + 可直接跳转的明细
     const anomalyPanel = panel('异常拦截', '本期需要复核的发放风险', DASH_ICONS.alert);
@@ -681,7 +787,9 @@
     } else {
       anomalyPanel.body.appendChild(el('div', 'notice green', '本期没有异常拦截记录。'));
     }
-    rightCol.appendChild(anomalyPanel.root);
+    addMod({ key: 'anomaly', title: '异常拦截', icon: DASH_ICONS.alert,
+      meta: `${num(metrics.anomalies.length)} 条待复核`,
+      node: anomalyPanel.root, home: rightCol });
 
     grid.appendChild(leftCol);
     grid.appendChild(rightCol);
@@ -712,7 +820,9 @@
         campPanel.body.appendChild(row);
       });
     if (!campPanel.body.children.length) campPanel.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
-    bottom.appendChild(campPanel.root);
+    addMod({ key: 'campaigns', title: '重点活动', icon: DASH_ICONS.campaign,
+      meta: `${num(campPanel.body.children.length)} 个活动 · 点击定位到管理页`,
+      node: campPanel.root, home: bottom });
 
     const pending = DB.campaigns.filter((c) => c.status === 'pending');
     const anomalyCount = metrics.anomalies.length;
@@ -754,10 +864,12 @@
       const ok = el('div', 'notice green', '当前没有待审批活动或待查异常，链路运行正常。');
       todo.body.appendChild(ok);
     }
-    bottom.appendChild(todo.root);
+    addMod({ key: 'todo', title: '待办与提醒', icon: DASH_ICONS.alert,
+      meta: `${num(pending.length + anomalyCount)} 项待处理`,
+      node: todo.root, home: bottom });
     host.appendChild(bottom);
 
-    requestAnimationFrame(() => {
+    function drawTrend() {
       const labels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
       const series = store
         ? [{ labels, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }]
@@ -766,8 +878,16 @@
             { labels, data: metrics.trend.map((x) => x.claimed), color: '#D9A9A5' },
             { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: 280 });
-    });
+      lineChart(canvas, series, { height: S.ov.focus === 'trend' ? 420 : 280 });
+    }
+    requestAnimationFrame(drawTrend);
+
+    // 筛选/语言切换会重建页面：恢复此前的聚焦模块（无动画，避免闪烁）
+    if (S.ov.focus) {
+      const keep = S.ov.focus;
+      S.ov.focus = null;
+      focusTo(keep, true);
+    }
     if (!metrics.issued && !metrics.used) {
       // 空态要说清「为什么空」并给下一步，而不是一句灰字
       const em = el('div', 'empty');
@@ -2614,5 +2734,10 @@
   }
 
   /* ------------------------------------------------------------ 启动 */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || S.page !== 'overview' || !S.ov.focus) return;
+    const back = $('#content .focus-back');
+    if (back) back.click();
+  });
   document.addEventListener('DOMContentLoaded', boot);
 })(window);

@@ -639,9 +639,13 @@
     const opt = options || {};
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    const W = rect.width || 600, H = opt.height || 260;
+    // 用 100% 跟随容器宽度；若写死像素，首次在隐藏/未完成布局时测到的窄宽度会永久残留，
+    // 导致曲线挤在左侧（模块聚焦/收回时容器宽度变化尤其明显）。
+    // clientWidth 是布局宽度，不受 FLIP 动画的 transform 缩放影响。
+    const W = canvas.clientWidth > 40 ? canvas.clientWidth : (rect.width > 40 ? rect.width : 600);
+    const H = opt.height || 260;
     canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    canvas.style.width = '100%'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);

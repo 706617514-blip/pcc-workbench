@@ -1442,3 +1442,113 @@ body { padding: 30px; }
  * -------------------------------------------------------------------------- */
 #content > .metrics { margin-bottom: 20px; }
 #content > .dash-panel { margin-bottom: 20px; }
+
+/* ==========================================================================
+ * 数据大盘 · 模块聚焦视图
+ * 点模块 → 原位放大为主视图，其余模块缩入底部玻璃缩略条；
+ * 点缩略条切换主视图；返回 / Esc 时沿原路收回（FLIP 动画由 JS 驱动）。
+ * ========================================================================== */
+.dash-board { position: relative; }
+.dash-grid-anchor { height: 0; margin: 0; }
+.dash-module { position: relative; min-width: 0; transform-origin: top left; cursor: zoom-in; }
+.dash-module > .mod-full { position: relative; height: 100%; }
+.dash-module > .mod-full > .dash-panel,
+.dash-module > .mod-full > .chart-card { height: 100%; transition: box-shadow .2s ease; }
+.dash-module:hover > .mod-full > .dash-panel,
+.dash-module:hover > .mod-full > .chart-card {
+  box-shadow: 0 16px 42px rgba(74, 30, 24, .16), inset 0 1px 0 rgba(255, 255, 255, .95);
+}
+.mod-expand {
+  position: absolute; top: 16px; right: 18px; z-index: 4;
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid rgba(107, 11, 12, .12); border-radius: 9px;
+  background: rgba(255, 253, 249, .86); color: var(--pcc-red);
+  opacity: 0; transition: opacity .18s, transform .18s; cursor: pointer;
+}
+.mod-expand svg { width: 15px; height: 15px; }
+.dash-module:hover > .mod-expand { opacity: 1; }
+.mod-expand:hover { transform: scale(1.08); background: #fff; }
+.mod-thumb { display: none; }
+.dash-board .dash-stage, .dash-board .dash-thumbstrip { display: none; }
+
+/* 聚焦工具条 */
+.focus-toolbar { display: none; align-items: center; gap: 16px; padding: 0 4px 14px; }
+.focus-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 15px; border-radius: 999px;
+  border: 1px solid rgba(107, 11, 12, .14); background: rgba(255, 253, 249, .78);
+  color: var(--pcc-red); font-size: 13px; font-weight: 650; cursor: pointer;
+  transition: background .18s, transform .18s;
+}
+.focus-back svg { width: 16px; height: 16px; }
+.focus-back:hover { background: #fff; transform: translateX(-2px); }
+.focus-crumb { font-size: 15px; font-weight: 700; color: var(--ink); }
+.focus-crumb b { color: var(--pcc-red); }
+.focus-tip { margin-left: auto; font-size: 12px; color: var(--ink-4); }
+
+/* 聚焦态：主视图 + 底部玻璃缩略条 */
+.dash-board.is-focused ~ .dash-mid,
+.dash-board.is-focused ~ .dash-bottom { display: none; }
+.dash-board.is-focused .focus-toolbar { display: flex; }
+.dash-board.is-focused .dash-stage { display: block; padding: 2px; }
+.dash-board.is-focused .dash-stage > .dash-module { cursor: default; }
+.dash-board.is-focused .dash-stage .mod-expand { display: none; }
+.dash-board.is-focused .dash-stage > .dash-module > .mod-full > .dash-panel,
+.dash-board.is-focused .dash-stage > .dash-module > .mod-full > .chart-card {
+  min-height: 520px; display: flex; flex-direction: column;
+}
+.dash-board.is-focused .dash-stage .dash-panel-body { flex: 1; }
+.dash-board.is-focused .dash-stage .chart-insight { margin-top: auto; }
+.dash-board.is-focused .dash-stage .coupon-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start; }
+.dash-board.is-focused .dash-stage .coupon-viz {
+  min-height: 188px; padding: 22px 24px; display: flex; flex-direction: column; justify-content: center;
+}
+.dash-board.is-focused .dash-stage .cp-head b { font-size: 17px; }
+.dash-board.is-focused .dash-stage .cp-head span { font-size: 12px; }
+.dash-board.is-focused .dash-stage .cp-ring-wrap { width: 104px; height: 104px; flex-basis: 104px; }
+.dash-board.is-focused .dash-stage .cp-ring-label b { font-size: 21px; }
+.dash-board.is-focused .dash-stage .cp-ring-label span { font-size: 11px; }
+.dash-board.is-focused .dash-stage .cp-stats { gap: 11px; }
+.dash-board.is-focused .dash-stage .cp-stats span { font-size: 13px; }
+.dash-board.is-focused .dash-stage .cp-stats b { font-size: 17px; }
+.dash-board.is-focused .dash-stage .dash-list-row { padding-top: 14px; padding-bottom: 14px; }
+
+.dash-board.is-focused .dash-thumbstrip {
+  display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden;
+  margin-top: 16px; padding: 14px 4px 6px;
+  background: rgba(255, 253, 249, .42);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(74, 30, 24, .08), inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.dash-thumbstrip .mod-full, .dash-thumbstrip .mod-expand { display: none; }
+.dash-thumbstrip > .dash-module { flex: 0 0 196px; }
+.dash-thumbstrip .mod-thumb {
+  display: flex; width: 100%; flex: 0 0 196px; align-items: center; gap: 10px;
+  min-height: 74px; padding: 12px 13px; text-align: left;
+  border: 1px solid rgba(255, 255, 255, .88); border-radius: 14px;
+  background: rgba(255, 253, 249, .74); color: var(--ink); cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.dash-thumbstrip .mod-thumb:hover {
+  transform: translateY(-3px); background: #fff;
+  box-shadow: 0 12px 26px rgba(74, 30, 24, .14);
+}
+.thumb-ic {
+  flex: 0 0 32px; width: 32px; height: 32px; border-radius: 10px;
+  display: grid; place-items: center; color: var(--pcc-red);
+  background: linear-gradient(145deg, rgba(255, 248, 202, .9), rgba(244, 214, 211, .7));
+}
+.thumb-ic svg { width: 17px; height: 17px; }
+.thumb-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.thumb-txt b { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.thumb-txt span {
+  font-size: 11px; color: var(--ink-4); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-module, .mod-thumb, .focus-back { animation: none !important; transition: none !important; }
+}
