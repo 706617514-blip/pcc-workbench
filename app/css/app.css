@@ -1442,6 +1442,9 @@ body { padding: 30px; }
  * -------------------------------------------------------------------------- */
 #content > .metrics { margin-bottom: 20px; }
 #content > .dash-panel { margin-bottom: 20px; }
+/* 模块聚焦改版后，.dash-panel 不再是 #content 直接子节点，
+   原 margin 规则失效，需给包一层后的模块补回区块间距。 */
+#content > .dash-module { margin-bottom: 18px; }
 
 /* ==========================================================================
  * 数据大盘 · 模块聚焦视图
