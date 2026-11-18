@@ -1455,3 +1455,15 @@ body { padding: 30px; }
 .filterbar, .filterbar-row, .field { overflow: visible; }
 /* 下拉浮层再兜底提高层级，并避免被 transform 祖先限制 */
 .dropdown, .calendar, .dropdown-panel { z-index: 320; }
+
+/* --------------------------------------------------------------------------
+ * 修复②：顶栏账号/语言下拉被内容区盖住
+ * .appbar 与 .content 都是 z-index:1/relative，DOM 靠后的 .content 整体
+ * 盖住顶栏，导致账号/语言下拉只露上半截、被筛选卡片透出。把顶栏提到
+ * 内容区之上（含其内部浮层所在上下文），下拉即可完整浮于所有内容之上。
+ * 100 仍低于 modal(.overlay 500)/toast(9000)，不影响弹窗与提示。
+ * -------------------------------------------------------------------------- */
+.appbar { z-index: 100 !important; }
+/* 顶栏内的下拉浮层再显式抬升，确保高于顶栏自身背景层 */
+.appbar .lang-panel { z-index: 120; }
+.appbar .account-dropdown { z-index: 120; }
