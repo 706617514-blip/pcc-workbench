@@ -679,9 +679,30 @@
     })).sort((a, b) => b.value - a.value).slice(0, 12);
   }
 
+  /** 下钻趋势：发放/领取/核销共用同一日期轴（超过 62 天自动按月合并） */
+  function unifiedDrillSeries(iss, cla, use) {
+    const mapOf = (rows, k) => {
+      const m = new Map();
+      rows.forEach((x) => { const d = (x[k] || '').slice(0, 10); if (d) m.set(d, (m.get(d) || 0) + 1); });
+      return m;
+    };
+    const mi = mapOf(iss, 'issued_at'), mc = mapOf(cla, 'claimed_at'), mu = mapOf(use, 'redeemed_at');
+    let keys = Array.from(new Set([...mi.keys(), ...mc.keys(), ...mu.keys()])).sort();
+    const monthly = keys.length > 62;
+    if (monthly) keys = Array.from(new Set(keys.map((d) => d.slice(0, 7)))).sort();
+    const kOf = (d) => (monthly ? d.slice(0, 7) : d);
+    const arr = (m) => {
+      const mm = new Map();
+      m.forEach((v, d) => { const k = kOf(d); mm.set(k, (mm.get(k) || 0) + v); });
+      return keys.map((k) => mm.get(k) || 0);
+    };
+    return { labels: keys.map((k) => (monthly ? k.slice(2) : k.slice(5))), issued: arr(mi), claimed: arr(mc), used: arr(mu) };
+  }
+
   /**
-   * 活动详情「发放结果」四张卡的下钻内容：统计 + 趋势 + 门店分布 + 最近记录。
-   * 全程只替换弹窗 body，不跳页、不改 hash，返回时原界面原样恢复。
+   * 活动详情「发放结果」四张卡的下钻内容：
+   * 左侧竖排（日期筛选 + 发放/领取/核销数）、右侧三线趋势（跟随日期）、
+   * 下方门店核销分布（全港 + TOP5）与最近记录。全程只替换弹窗 body，不跳页、不改 hash。
    */
   function buildCampaignDrill(key, ctx) {
     const { issued, claimedList, usedList, c } = ctx;
@@ -694,81 +715,91 @@
     bar.appendChild(el('span', 'cd-drill-title', t('cd.t.' + key)));
     wrap.appendChild(bar);
 
+    const content = el('div', 'cd-drill-content');
+    wrap.appendChild(content);
+
     const statusText = (cp) => E.STATUS.coupon[cp.status] || cp.status || '—';
     const memberOf = (cp) => E.maskPhone ? E.maskPhone(cp.customer_id || '') : (cp.customer_id || '—');
+    const redByCid = new Map(DB.redemption.map((r) => [r.coupon_id, r]));
+    const allDates = []
+      .concat(issued.map((x) => (x.issued_at || '').slice(0, 10)))
+      .concat(claimedList.map((x) => (x.claimed_at || '').slice(0, 10)))
+      .concat(usedList.map((x) => (x.redeemed_at || '').slice(0, 10)))
+      .filter(Boolean).sort();
+    const defFrom = allDates[0] || '2025-01-01';
+    const defTo = C.DATA_TODAY;
 
-    if (key === 'issued') {
-      wrap.appendChild(detailStats([
-        { label: t('ov.detail.issued'), value: num(issued.length) },
-        { label: t('ov.detail.claimed'), value: num(claimedList.length) },
-        { label: t('ov.detail.used'), value: num(usedList.length) },
-      ]));
-      const dd = drillDaily(issued, 'issued_at');
-      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#6B0B0C' }], 170)));
-      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(issued))));
-      const recent = issued.slice().sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at))).slice(0, 8);
-      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => ({
-        title: `${t('cd.member')} ${esc(memberOf(cp))} · ${esc(cp.coupon_id)}`,
-        meta: `${t('cd.time')} ${esc(cp.issued_at || '—')}`,
-        tag: statusText(cp),
-      })), t('cd.noRec'))));
-    } else if (key === 'claimed') {
-      const rate = issued.length ? claimedList.length / issued.length : 0;
-      wrap.appendChild(detailStats([
-        { label: t('ov.detail.claimed'), value: num(claimedList.length) },
-        { label: t('ov.detail.rate'), value: pct(rate) },
-        { label: t('ov.detail.used'), value: num(usedList.length) },
-      ]));
-      const dd = drillDaily(claimedList, 'claimed_at');
-      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#BA7517' }], 170)));
-      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(claimedList))));
-      const recent = claimedList.slice().sort((a, b) => String(b.claimed_at).localeCompare(String(a.claimed_at))).slice(0, 8);
-      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => ({
-        title: `${t('cd.member')} ${esc(memberOf(cp))} · ${esc(cp.coupon_id)}`,
-        meta: `${t('cd.time')} ${esc(cp.claimed_at || '—')}`,
-        tag: statusText(cp),
-      })), t('cd.noRec'))));
-    } else if (key === 'used') {
-      const redByCid = new Map(DB.redemption.map((r) => [r.coupon_id, r]));
-      const paid = usedList.reduce((s, cp) => s + (Number((redByCid.get(cp.coupon_id) || {}).paid_amount) || 0), 0);
-      const aov = usedList.length ? paid / usedList.length : 0;
-      wrap.appendChild(detailStats([
-        { label: t('ov.detail.used'), value: num(usedList.length) },
-        { label: t('ov.detail.total'), value: money(paid) },
-        { label: t('ov.detail.aov'), value: money(aov) },
-      ]));
-      const dd = drillDaily(usedList, 'redeemed_at');
-      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#1D9E75' }], 170)));
-      const redRows = usedList.map((cp) => redByCid.get(cp.coupon_id)).filter(Boolean);
-      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(redRows.length ? redRows : usedList))));
-      const recent = usedList.slice().sort((a, b) => String(b.redeemed_at).localeCompare(String(a.redeemed_at))).slice(0, 8);
-      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => {
+    const renderBody = (from, to) => {
+      content.replaceChildren();
+      const inRange = (ts) => { const d = (ts || '').slice(0, 10); return !!d && d >= from && d <= to; };
+      const iss = issued.filter((x) => inRange(x.issued_at));
+      const cla = claimedList.filter((x) => inRange(x.claimed_at));
+      const use = usedList.filter((x) => inRange(x.redeemed_at));
+
+      /* 左：日期筛选 + 三张数字卡（竖排） */
+      const main = el('div', 'cd-drill-main');
+      const side = el('div', 'cd-drill-side');
+      const dateBox = el('div', 'cd-drill-date');
+      dateBox.innerHTML = `<label>${esc(t('ov.filter.date'))}</label>`;
+      const rp = rangePicker({
+        from, to, today: C.DATA_TODAY, maxDate: C.DATA_TODAY,
+        onChange: (a, b) => renderBody(a || defFrom, b || defTo),
+      });
+      dateBox.appendChild(rp);
+      side.appendChild(dateBox);
+      const stats = detailStats([
+        { label: t('ov.detail.issued'), value: num(iss.length) },
+        { label: t('ov.detail.claimed'), value: num(cla.length) },
+        { label: t('ov.detail.used'), value: num(use.length) },
+      ]);
+      stats.classList.add('cd-drill-stats-v');
+      side.appendChild(stats);
+      main.appendChild(side);
+
+      /* 右：三条曲线共用同一日期轴 + 顶部图例 */
+      const axis = unifiedDrillSeries(iss, cla, use);
+      const chartBox = el('div', 'cd-drill-chart');
+      const legend = el('div', 'cd-legend');
+      legend.innerHTML = [
+        [t('ov.detail.issued'), '#6B0B0C'],
+        [t('ov.detail.claimed'), '#BA7517'],
+        [t('ov.detail.used'), '#1D9E75'],
+      ].map(([n, col]) => `<span><i style="background:${col}"></i>${esc(n)}</span>`).join('');
+      chartBox.appendChild(legend);
+      const canvas = el('canvas');
+      chartBox.appendChild(canvas);
+      main.appendChild(chartBox);
+      content.appendChild(main);
+      requestAnimationFrame(() => lineChart(canvas, [
+        { labels: axis.labels, data: axis.issued, color: '#6B0B0C' },
+        { labels: axis.labels, data: axis.claimed, color: '#BA7517' },
+        { labels: axis.labels, data: axis.used, color: '#1D9E75' },
+      ], { height: 236 }));
+
+      /* 门店分布：核销数（全港 + TOP5） */
+      const usedIds = new Set(use.map((x) => x.coupon_id));
+      const redRows = DB.redemption.filter((r) => usedIds.has(r.coupon_id) && inRange(r.redeemed_at));
+      const dist = [{ name: '全港', value: redRows.length, text: num(redRows.length) }];
+      groupSum(redRows, (r) => r.store_id || '__all')
+        .sort((a, b) => b.value - a.value).slice(0, 5)
+        .forEach((x) => dist.push({ name: x.name === '__all' ? '未指定门店' : E.utils.storeLabel(x.name), value: x.value, text: num(x.value) }));
+      content.appendChild(detailSection(`${t('cd.dist')} · ${t('ov.detail.used')}`, detailBars(dist)));
+
+      /* 最近记录：跟随日期与所选卡片 */
+      const recBase = key === 'claimed' ? cla : key === 'used' ? use : iss;
+      const tsKey = key === 'claimed' ? 'claimed_at' : key === 'used' ? 'redeemed_at' : 'issued_at';
+      const recent = recBase.slice().sort((a, b) => String(b[tsKey]).localeCompare(String(a[tsKey]))).slice(0, 8);
+      content.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => {
         const r = redByCid.get(cp.coupon_id);
         return {
-          title: `${t('cd.member')} ${esc(memberOf(cp))} · ${r ? esc(E.utils.storeLabel(r.store_id)) : esc(E.utils.storeLabel(cp.store_id))}`,
-          meta: `${t('cd.time')} ${esc(cp.redeemed_at || '—')} · ${t('cd.paid')} ${money((r || {}).paid_amount || 0)}`,
+          title: `${t('cd.member')} ${esc(memberOf(cp))} · ${esc(cp.coupon_id)}`,
+          meta: `${t('cd.time')} ${esc(cp[tsKey] || '—')}${r ? ' · ' + esc(E.utils.storeLabel(r.store_id)) : ''}`,
           tag: statusText(cp),
         };
       }), t('cd.noRec'))));
-    } else if (key === 'rate') {
-      const claimRate = issued.length ? claimedList.length / issued.length : 0;
-      const redeemRate = issued.length ? usedList.length / issued.length : 0;
-      const funnel = [
-        { name: t('ov.detail.issued'), value: issued.length, text: `${num(issued.length)} · 100%` },
-        { name: t('ov.detail.claimed'), value: claimedList.length, text: `${num(claimedList.length)} · ${pct(claimRate)}` },
-        { name: t('ov.detail.used'), value: usedList.length, text: `${num(usedList.length)} · ${pct(redeemRate)}` },
-      ];
-      wrap.appendChild(detailStats([
-        { label: t('ov.detail.issued'), value: num(issued.length) },
-        { label: t('ov.detail.claimed'), value: pct(claimRate) },
-        { label: t('ov.detail.used'), value: pct(redeemRate) },
-      ]));
-      wrap.appendChild(detailSection(t('mg.scope'), detailBars(funnel)));
-      const dd = drillDaily(usedList, 'redeemed_at');
-      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#6B0B0C' }], 170)));
-      const byStore = drillStoreBars(usedList);
-      wrap.appendChild(detailSection(t('cd.dist'), detailBars(byStore)));
-    }
+    };
+
+    renderBody(defFrom, defTo);
     return wrap;
   }
 
