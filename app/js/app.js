@@ -28,47 +28,7 @@
     collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h5V3M21 8h-5V3M16 21v-5h5M8 21v-5H3"/></svg>',
   };
 
-  /* ---------------------------------------------- 可视化组件（纯 SVG / DOM） */
-
-  /** 横向条形图行：label + 进度条 + 数值。value 0-1 表示占比，display 为显示文本 */
-  function vizBar(label, value, display, tone, alarm) {
-    const row = el('div', 'viz-bar-row');
-    const pctVal = Math.max(0, Math.min(1, Number(value) || 0));
-    const fillTone = tone || 'wine';
-    row.innerHTML = `<div class="viz-bar-top"><span class="viz-bar-label">${esc(label)}</span>
-        <span class="viz-bar-value${alarm ? ' alarm' : ''}">${esc(display)}</span></div>
-      <div class="viz-bar-track"><span class="viz-bar-fill tone-${fillTone}${alarm ? ' alarm' : ''}" style="width:${(pctVal * 100).toFixed(1)}%"></span></div>`;
-    return row;
-  }
-
-  /** 环形进度图：居中数值 + 下方标签 */
-  function vizDonut(value, max, color, centerText, centerSub) {
-    const wrap = el('div', 'viz-donut');
-    const r = 40, c = 2 * Math.PI * r;
-    const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
-    const dash = (c * ratio).toFixed(2);
-    wrap.innerHTML = `<svg viewBox="0 0 100 100" class="viz-donut-svg">
-        <circle cx="50" cy="50" r="${r}" class="viz-donut-bg"></circle>
-        <circle cx="50" cy="50" r="${r}" class="viz-donut-fg" style="stroke:${color};stroke-dasharray:${dash} ${c.toFixed(2)}"></circle>
-      </svg>
-      <div class="viz-donut-center"><b>${esc(centerText)}</b>${centerSub ? `<span>${esc(centerSub)}</span>` : ''}</div>`;
-    return wrap;
-  }
-
-  /** 迷你柱状图：一组数值，按最大值归一 */
-  function vizColumns(items, color) {
-    const wrap = el('div', 'viz-cols');
-    const max = Math.max(1, ...items.map((x) => x.value));
-    items.forEach((it) => {
-      const col = el('div', 'viz-col');
-      const h = Math.max(3, Math.round((it.value / max) * 100));
-      col.innerHTML = `<div class="viz-col-bar" style="height:${h}%;background:${color}"></div>
-        <span class="viz-col-label">${esc(it.label)}</span>`;
-      col.title = `${it.label}：${it.value}`;
-      wrap.appendChild(col);
-    });
-    return wrap;
-  }
+  /* ---------------------------------------------- 可视化组件（纯 DOM） */
 
   /** KPI 卡：数值 + 上一等长周期对比，数字必须带上下文 */
   function kpiCard(label, value, hint, delta, icon, tone) {
@@ -81,49 +41,6 @@
       <div class="metric-value">${esc(value)}</div>
       <div class="metric-foot">${d}<span>${esc(hint)}</span></div>`;
     return m;
-  }
-
-  /** 转化漏斗：同一批券从发放到领取到核销的逐级损耗 */
-  function vizFunnel(stages) {
-    const wrap = el('div', 'funnel');
-    const base = stages[0] ? stages[0].value : 0;
-    stages.forEach((s, i) => {
-      const row = el('div', 'funnel-row');
-      const width = base > 0 ? Math.max(4, (s.value / base) * 100) : 0;
-      row.innerHTML = `<div class="funnel-meta">
-          <span class="funnel-label">${esc(s.label)}</span>
-          <span class="funnel-value">${esc(s.valueText)}</span>
-        </div>
-        <div class="funnel-track"><span class="funnel-fill f${i}" style="width:${width.toFixed(1)}%"></span></div>
-        <div class="funnel-note">${esc(s.note)}</div>`;
-      wrap.appendChild(row);
-    });
-    return wrap;
-  }
-
-  /** 单个券种的表现卡：核销率环形 + 发放/领取/核销三段真实数值 */
-  function couponVizCard(x) {
-    const card = el('div', 'coupon-viz');
-    const rate = x.redeem_rate || 0;
-    const c = 2 * Math.PI * 30;
-    const color = rate >= .3 ? '#6B0B0C' : rate >= .1 ? '#C98A4B' : '#7FA8B4';
-    card.innerHTML = `<div class="cp-head"><b>${esc(x.name)}</b><span>${esc(x.discount_label)}</span></div>
-      <div class="cp-main">
-        <div class="cp-ring-wrap">
-          <svg viewBox="0 0 80 80" class="cp-ring">
-            <circle cx="40" cy="40" r="30" class="cp-ring-bg"></circle>
-            <circle cx="40" cy="40" r="30" class="cp-ring-fg" style="stroke:${color};stroke-dasharray:${(c * Math.max(0, Math.min(1, rate))).toFixed(2)} ${c.toFixed(2)}"></circle>
-          </svg>
-          <div class="cp-ring-label"><b>${esc(pct(rate))}</b><span>核销率</span></div>
-        </div>
-        <div class="cp-stats">
-          <div><span>发放</span><b>${num(x.issued)}</b></div>
-          <div><span>领取</span><b>${num(x.claimed)}</b></div>
-          <div><span>核销</span><b>${num(x.used)}</b></div>
-        </div>
-      </div>`;
-    card.title = `${x.name} · 领取率 ${pct(x.claim_rate)} · 核销率 ${pct(x.redeem_rate)}`;
-    return card;
   }
 
   /** 新版看板面板：统一图标 + 标题 + 内容区 */
