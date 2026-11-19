@@ -210,7 +210,7 @@
     } catch (err) {
       host.innerHTML = `<div style="padding:60px;text-align:center;color:#A5192E;font-family:sans-serif">
         <h2>数据加载失败</h2><p style="color:#666">${esc(err.message)}</p>
-        <p style="color:#999;font-size:13px">请通过本地 HTTP 服务访问（data/*.json 需要经 fetch 读取）。</p></div>`;
+        <p style="color:#999;font-size:13px">请检查网络后刷新重试；若你是直接双击打开 index.html，请改用本地服务或在线地址。</p></div>`;
       return;
     }
     host.innerHTML = '';
@@ -290,9 +290,10 @@
     sessionStorage.setItem('pcc.accountKey', accountId);
     E.audit(acc.display_name || acc.name, 'login', 'staff_account', accountId,
       `${acc.display_name || acc.name} 登录工作台（${isStore() ? E.utils.storeLabel(acc.scope_id) : '全港'}）`, '演示登录');
+    const pending = pageFromHash();   // 登录前访问过的页面，登录后回到原目标
     S.page = null;
     mountWorkbench();
-    setHash('overview');
+    setHash(pending || 'overview');
     toast(t('login.enter') + ' · ' + (acc.display_name || acc.name), 'ok');
   }
 
@@ -1700,7 +1701,9 @@
       if (!S.create.result.total) toast('没有符合条件的会员，请调整筛选条件', 'warn');
       else toast(`筛选完成，共 ${num(S.create.result.total)} 位会员`, 'ok');
     });
-    filterCard.appendChild(applyBtn);
+    const applyWrap = el('div', 'filter-apply-sticky');
+    applyWrap.appendChild(applyBtn);
+    filterCard.appendChild(applyWrap);
     if (store) {
       const note = el('div', 'notice grey');
       note.style.marginTop = '16px';
@@ -1714,7 +1717,7 @@
     const right = el('div', '');
 
     const countCard = el('div', 'card card-pad');
-    const n = S.create.result ? S.create.result.total : 0;
+    const n = S.create.result ? S.create.result.total : null;   // null = 还没应用筛选
     const scopeIds = (S.create.result && S.create.result.scope_ids) || [];
     const scopeText = store ? E.utils.storeLabel(myStore)
       : scopeIds.length ? `${t('cr.scope.selected')}：${scopeIds.map((s) => E.utils.storeLabel(s)).join('、')}`
@@ -1725,8 +1728,8 @@
         <span class="chip ${store ? 'chip-red' : (scopeIds.length ? 'chip-amber' : 'chip-grey')}">${esc(scopeText)}</span>
       </div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px">
-        <span style="font-size:46px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">${esc(num(n))}</span>
-        <span style="font-size:15px;color:var(--ink-3)">${esc(t('cr.person'))}</span>
+        <span style="font-size:46px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">${n === null ? '—' : esc(num(n))}</span>
+        <span style="font-size:15px;color:var(--ink-3)">${n === null ? esc(t('cr.not_applied')) : esc(t('cr.person'))}</span>
       </div>`;
     right.appendChild(countCard);
 

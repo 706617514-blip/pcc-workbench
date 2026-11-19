@@ -102,11 +102,24 @@
     try {
       const cp = DB.couponInstance.find((c) => c.coupon_type === 'winback' && c.status === 'claimed');
       const r = E.redeemCoupon(cp.coupon_id, 68, 400, cp.customer_id);  // 400 分 = HK$20
-      const noStack = DB.couponInstance.find((c) => c.coupon_type === 'birthday' && c.status === 'claimed');
+      // 不依赖恰好存在已领取的生日券：临时把任意一张生日券置为已领取，测完还原
+      const noStack = DB.couponInstance.find((c) => c.coupon_type === 'birthday');
+      const _st = noStack && { status: noStack.status, claimed_at: noStack.claimed_at,
+        valid_from: noStack.valid_from, valid_until: noStack.valid_until };
+      if (noStack) {
+        noStack.status = 'claimed';
+        noStack.claimed_at = noStack.claimed_at || C.DATA_TODAY;
+        noStack.valid_from = C.DATA_TODAY;                       // 排除「已过期」干扰，只测积分同用规则
+        noStack.valid_until = E.utils.addDays(C.DATA_TODAY, 7);
+      }
       let blockMsg = '';
       if (noStack) {
         const r2 = E.redeemCoupon(noStack.coupon_id, 68, 400, noStack.customer_id);
-        blockMsg = r2.ok ? '不可叠加券未被拦截' : r2.error;
+        blockMsg = r2.ok ? '不可叠加券未被拦截' : (r2.error || '');
+      }
+      if (noStack && _st) {
+        noStack.status = _st.status; noStack.claimed_at = _st.claimed_at;
+        noStack.valid_from = _st.valid_from; noStack.valid_until = _st.valid_until;
       }
       const stuOk = E.COUPON_TYPES.student.discount === 0.75
         && E.COUPON_TYPES.student.validity_days === 7
@@ -115,7 +128,7 @@
       const oneToOne = DB.redemption.every((rd) => DB.couponInstance.filter((c) => c.coupon_id === rd.coupon_id).length === 1);
       rec(5, '积分与用券',
         r.ok && r.redemption.point_value === 20 && Math.abs(r.redemption.paid_amount - 38.4) < 0.01
-        && (blockMsg === '' || /不可与积分/.test(blockMsg)) && stuOk && oneToOne,
+        && /不可与积分/.test(blockMsg) && stuOk && oneToOne,
         `可叠加券：原价 68，积分抵付 HK$${r.redemption.point_value}，实付 HK$${r.redemption.paid_amount}；` +
         `不可叠加券拦截="${blockMsg}"；学生券 7.5 折/7 天/每月一次=${stuOk}；券与核销一对一=${oneToOne}`);
     } catch (e) { rec(5, '积分与用券', false, 'ERR ' + e.message); }
@@ -210,10 +223,10 @@
       const cp = DB.couponInstance.find((c) => c.coupon_type === 'winback' && c.status === 'unclaimed');
       const beforeValid = cp.valid_until;
       const r = E.claimCoupon(cp.coupon_id, cp.customer_id);
-      rec(11, '消费端静态原型',
+      rec(11, '券领取与有效期（引擎层）',
         r.ok && cp.status === 'claimed' && !beforeValid && cp.valid_until,
         `待领取状态 valid_until 为空（有效期未开始），点击领取后 status=${cp.status} valid_until=${cp.valid_until}`);
-    } catch (e) { rec(11, '消费端静态原型', false, 'ERR ' + e.message); }
+    } catch (e) { rec(11, '券领取与有效期（引擎层）', false, 'ERR ' + e.message); }
 
     /* ---- 12. AI 助手与权限守门 ---- */
     try {
