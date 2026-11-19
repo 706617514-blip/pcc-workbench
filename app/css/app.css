@@ -1328,7 +1328,8 @@ body::after {
   display: flex; align-items: stretch; justify-content: center;
 }
 .app-window {
-  width: 100%; max-width: 1560px; height: 100%;
+  /* 宽屏居中：#root 被 display:block !important 覆盖，这里必须自己居中 */
+  width: 100%; max-width: 1560px; height: 100%; margin: 0 auto;
   display: flex; flex-direction: column;
   border-radius: 30px;
   background: linear-gradient(150deg, rgba(255,253,249,.78), rgba(255,250,243,.62));
