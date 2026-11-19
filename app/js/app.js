@@ -770,11 +770,17 @@
       chartBox.appendChild(canvas);
       main.appendChild(chartBox);
       content.appendChild(main);
-      requestAnimationFrame(() => lineChart(canvas, [
-        { labels: axis.labels, data: axis.issued, color: '#6B0B0C' },
-        { labels: axis.labels, data: axis.claimed, color: '#BA7517' },
-        { labels: axis.labels, data: axis.used, color: '#1D9E75' },
-      ], { height: 236 }));
+      requestAnimationFrame(() => {
+        // chart 卡片被 stretch 到与左侧等高，按其内容区可用高度绘制，消除框内留白
+        const cs = getComputedStyle(chartBox);
+        const avail = chartBox.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+          - legend.offsetHeight - parseFloat(getComputedStyle(legend).marginBottom);
+        lineChart(canvas, [
+          { labels: axis.labels, data: axis.issued, color: '#6B0B0C' },
+          { labels: axis.labels, data: axis.claimed, color: '#BA7517' },
+          { labels: axis.labels, data: axis.used, color: '#1D9E75' },
+        ], { height: Math.max(120, avail) });
+      });
 
       /* 门店分布：核销数（全港 + TOP5） */
       const usedIds = new Set(use.map((x) => x.coupon_id));
