@@ -189,6 +189,8 @@ table { border-collapse: collapse; width: 100%; }
   padding: 18px 22px; box-shadow: var(--shadow); margin-bottom: 22px;
 }
 .filterbar-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.filter-result-count { align-self: flex-end; margin-left: auto; padding-bottom: 11px; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; }
+.filter-result-count b { color: var(--pcc-red); font-weight: 700; font-variant-numeric: tabular-nums; }
 .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .field > label { font-size: 12.5px; color: var(--ink-3); font-weight: 500; }
 .field-grow { flex: 1 1 200px; }
@@ -550,6 +552,14 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
 .notice.grey { background: #F5F5F6; color: var(--ink-2); }
 .notice.green { background: var(--green-tint); color: var(--green); }
 .notice.amber { background: var(--amber-tint); color: var(--amber); }
+
+/* 批准确认：影响摘要卡 */
+.ap-impact { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ap-impact-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 9px 13px; font-size: 13px; }
+.ap-impact-row:nth-child(odd) { background: var(--line-2); }
+.ap-impact-row span { color: var(--ink-3); }
+.ap-impact-row b { color: var(--ink); font-weight: 600; text-align: right; }
+.ap-impact-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-3); line-height: 1.6; }
 
 /* --------- 复选卡片（导出内容） --------- */
 .check-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -1575,4 +1585,71 @@ body { padding: 30px; }
 
 @media (prefers-reduced-motion: reduce) {
   .dash-module, .mod-thumb, .focus-back { animation: none !important; transition: none !important; }
+}
+
+/* ==========================================================================
+ * 手机响应式（≤640px / ≤420px）——修复窄屏下的越界、遮挡与文字截断
+ * ==========================================================================*/
+@media (max-width: 640px) {
+  body { padding: 0; }
+  #root { height: 100vh; }
+  .app-window { border-radius: 0; border: none; }
+  .appbar-inner { height: auto; min-height: 56px; flex-wrap: wrap; gap: 8px 12px; padding: 10px 14px; }
+  /* 品牌 + 工具在第一行，导航独占第二行并可横向滚动 */
+  .brand { flex: 1 1 auto; }
+  .appbar-tools { margin-left: auto; gap: 8px; }
+  .ai-search { width: 40px; min-width: 40px; padding: 8px; justify-content: center; }
+  .ai-search-ph, .ai-search-key { display: none; }
+  .lang-btn { padding: 8px; }
+  .lang-btn #langLabel { display: none; }
+  .topnav { order: 3; width: 100%; flex-basis: 100%; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+  .topnav .nav-item { flex: 0 0 auto; white-space: nowrap; padding: 8px 12px; }
+  .content { padding: 18px 14px 48px; }
+
+  /* 页头：标题与操作按钮换行，避免相互遮挡 */
+  .page-head { flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  .page-head > div:last-child { margin-left: 0 !important; }
+
+  /* 筛选栏：单列铺满，计数提示换行 */
+  .filterbar { padding: 14px; }
+  .filterbar-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .filterbar-row .field, .filterbar-row .field-grow,
+  .filterbar-row > .field[style] { flex: 1 1 auto !important; min-width: 0 !important; width: 100% !important; }
+  .filterbar-row .control, .filterbar-row select, .filterbar-row input { width: 100% !important; }
+  .filter-result-count { margin-left: 0; padding-bottom: 0; align-self: flex-start; white-space: normal; }
+
+  /* 指标卡：2 列，数字不截断 */
+  .metrics-4, .metrics-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric { padding: 12px; }
+  .metric .kpi-val, .metric .v { font-size: 20px !important; }
+  .metric .delta, .metric .kpi-foot { flex-wrap: wrap; }
+
+  /* 图表/券种/底部：全部单列 */
+  .chart-grid, .dash-top, .dash-mid, .dash-bottom, .dash-mid-v2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .coupon-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-col { min-width: 0; }
+  .chart-card, .dash-panel { min-width: 0; overflow: hidden; }
+
+  /* 聚焦视图：主区单列，缩略条可横滚 */
+  .focus-toolbar { flex-wrap: wrap; gap: 8px; }
+  .focus-tip { display: none; }
+  .dash-thumbstrip { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .dash-thumbstrip > .dash-module, .dash-thumbstrip .mod-thumb { flex: 0 0 168px; }
+  .dash-board.is-focused .dash-stage .coupon-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  /* 表格：允许横向滚动而不是撑破卡片 */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data { min-width: 520px; }
+
+  /* AI 浮窗：小屏近乎全宽，避免超出视口 */
+  .ai-drawer { width: calc(100vw - 24px) !important; max-width: none !important; }
+}
+
+@media (max-width: 420px) {
+  .appbar-inner { padding: 8px 10px; }
+  .content { padding: 16px 10px 44px; }
+  .metrics-4, .metrics-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .metric { padding: 10px; }
+  .coupon-grid { grid-template-columns: 1fr; }
+  .page-title { font-size: 22px !important; }
 }

@@ -497,7 +497,8 @@
       f.innerHTML = `<label>${esc(t('ov.filter.store'))}</label>`;
       const ss = singleSelect({
         options: [{ v: '__all', label: t('cr.all_hk') }].concat(DB.stores.map((s) => ({ v: s.store_id, label: s.name }))),
-        value: '__all', onChange: () => {},
+        value: S.ov.storeFilter || '__all',
+        onChange: (v) => { S.ov.storeFilter = (v === '__all' ? null : v); render(); },
       });
       ss.style.minWidth = '180px';
       f.appendChild(ss); f.style.flex = '0 0 190px';
@@ -633,7 +634,8 @@
     // 指标 + 新版看板
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
-    const scopeLabel = store ? E.utils.storeLabel(myStore) : '全港门店';
+    const scopeLabel = store ? E.utils.storeLabel(myStore)
+      : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
     // 上一等长周期：让核心数字有「比上期如何」的上下文
     const dayCount = Math.max(1, Math.round(
@@ -1837,6 +1839,28 @@
       const cmt = ($('#apComment', body) || {}).value || '';
       if (!approve && !cmt.trim()) { toast('驳回时请填写审批意见', 'warn'); return; }
       const who = acc.display_name || acc.name;
+
+      // 批准是高影响动作：先给出影响摘要并二次确认，避免误批导致持续发券
+      if (approve) {
+        const modeText = c.mode === 'auto' ? t('mg.tab.auto') : t('sr.mode.manual');
+        const effText = c.mode === 'auto'
+          ? '批准后将按规则自动持续发券，已发出的券不受影响。'
+          : '批准后进入待发放状态，仍需逐批人工发放。';
+        const confirmed = await global.UI.confirm({
+          title: '批准活动',
+          message: `确认批准「${c.name}」？`,
+          detail: `<div class="ap-impact">
+            <div class="ap-impact-row"><span>目标会员</span><b>${c.audience_size ? num(c.audience_size) + ' 人' : '按筛选人群动态确定'}</b></div>
+            <div class="ap-impact-row"><span>券种 / 折扣</span><b>${esc(ct.name)} · ${esc(ct.discount_label)}</b></div>
+            <div class="ap-impact-row"><span>适用范围</span><b>${esc(E.scopeLabelOf(c))}</b></div>
+            <div class="ap-impact-row"><span>执行方式</span><b>${esc(modeText)}</b></div>
+          </div>
+          <div class="ap-impact-note">${esc(effText)} 可随时在活动管理中停用。</div>`,
+          okText: '确认批准', cancelText: '返回', tone: 'warn',
+        });
+        if (!confirmed) return;
+      }
+
       const r = approve
         ? E.approveCampaign(c.campaign_id, who, cmt)
         : E.rejectCampaign(c.campaign_id, who, cmt);
@@ -1927,14 +1951,14 @@
     ss3.style.minWidth = '140px';
     f4.appendChild(ss3); row.appendChild(f4);
 
-    const q = el('button', 'btn btn-primary', esc(t('sr.query')));
-    q.style.minWidth = '120px';
-    q.addEventListener('click', () => { render(); toast('查询完成', 'ok'); });
-    row.appendChild(q);
+    // 筛选即时生效，无需「查询」按钮；改为如实的结果计数提示
+    const resultCount = el('div', 'filter-result-count');
+    row.appendChild(resultCount);
     host.appendChild(bar);
 
     // 指标
     const jobs = filteredJobs();
+    resultCount.innerHTML = `共 <b>${num(jobs.length)}</b> 条记录 · 筛选即时生效`;
     const totalReq = jobs.reduce((s, j) => s + j.requested, 0);
     const totalOk = jobs.reduce((s, j) => s + j.success, 0);
     const totalFail = jobs.reduce((s, j) => s + j.failed, 0);
@@ -2166,7 +2190,7 @@
       <div class="prio-note">
         级别：生日 100 &gt; 新人 90 &gt; 回流 80 &gt; 主题 70 = 门店本地 70（平级）&gt; 学生 60。
         同级并列时按「适用范围更窄者优先」（单店 &gt; 多店 &gt; 全港），再按活动编号先后。
-        这组数值是工作台的可配置项，不是 PCC 现行运营政策，上线前须由 PCC 审定。
+        以上为当前生效的规则优先级，可在工作台内调整。
       </div>`;
     host.appendChild(prCard);
 

@@ -896,7 +896,7 @@
    * 领取率与核销率使用同一发放群体及统一截至时点。
    */
   function computeMetrics(filter, account) {
-    const { couponTypes, campaignIds, dateFrom, dateTo } = filter;
+    const { couponTypes, campaignIds, dateFrom, dateTo, storeFilter } = filter;
     const inRange = (ts, f, t) => {
       const d = ts.slice(0, 10);
       return d >= f && d <= t;
@@ -904,17 +904,19 @@
     const typeSet = (couponTypes && couponTypes.length) ? new Set(couponTypes) : null;
     const campSet = (campaignIds && campaignIds.length) ? new Set(campaignIds) : null;
 
-    // 门店账号：仅统计适用范围覆盖本店的活动，以及本店发生的核销
+    // 门店账号：仅统计适用范围覆盖本店的活动。
+    // 总部账号可用 storeFilter 主动查看某门店（按活动覆盖范围，口径与门店账号一致）。
     const storeScoped = account.scope_type === 'store';
     const myStore = account.scope_id;
+    const scopeStore = storeScoped ? myStore : (storeFilter || null);
+    const applyStoreFilter = !!scopeStore && scopeStore !== '__all';
 
     const coupons = DB.couponInstance.filter((cp) => {
       if (typeSet && !typeSet.has(cp.coupon_type)) return false;
       if (campSet && !campSet.has(cp.campaign_id)) return false;
-      if (storeScoped) {
+      if (applyStoreFilter) {
         const camp = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
-        const applies = campaignCoversStore(camp, myStore);
-        if (!applies) return false;
+        if (!campaignCoversStore(camp, scopeStore)) return false;
       }
       return true;
     });
@@ -968,7 +970,7 @@
         paid_amount: round1(DB.redemption
           .filter((r) => set.some((c) => c.coupon_id === r.coupon_id) &&
                          inRange(r.redeemed_at, dateFrom, dateTo) &&
-                         (!storeScoped || r.store_id === myStore))
+                         (!applyStoreFilter || r.store_id === scopeStore))
           .reduce((s, r) => s + r.paid_amount, 0)),
       };
     }).filter((x) => x.issued > 0 || DB.campaigns.some((c) => c.campaign_id === x.campaign_id));
@@ -987,7 +989,7 @@
     // 相关订单实付
     const paid = round1(DB.redemption
       .filter((r) => cidSet.has(r.coupon_id) && inRange(r.redeemed_at, dateFrom, dateTo) &&
-                     (!storeScoped || r.store_id === myStore))
+                     (!applyStoreFilter || r.store_id === scopeStore))
       .reduce((s, r) => s + r.paid_amount, 0));
 
     // 最近异常（PRD 表 12）
