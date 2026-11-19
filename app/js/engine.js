@@ -953,11 +953,32 @@
       };
     });
 
-    // 按活动明细
+    // 按活动明细：先把券按活动分组、核销按券 ID 建索引，避免 O(n²) 的 some 查找
+    const byCampId = new Map();
+    for (const c of coupons) {
+      let g = byCampId.get(c.campaign_id);
+      if (!g) { g = []; byCampId.set(c.campaign_id, g); }
+      g.push(c);
+    }
+    const redeemByCid = new Map();
+    for (const r of DB.redemption) {
+      let arr = redeemByCid.get(r.coupon_id);
+      if (!arr) { arr = []; redeemByCid.set(r.coupon_id, arr); }
+      arr.push(r);
+    }
     const byCampaign = DB.campaigns.map((camp) => {
-      const set = coupons.filter((c) => c.campaign_id === camp.campaign_id);
+      const set = byCampId.get(camp.campaign_id) || [];
       const iss = set.filter((c) => inRange(c.issued_at, dateFrom, dateTo));
       const ids = new Set(iss.map((c) => c.coupon_id));
+      let paid = 0;
+      for (const c of set) {
+        const arr = redeemByCid.get(c.coupon_id);
+        if (!arr) continue;
+        for (const r of arr) {
+          if (inRange(r.redeemed_at, dateFrom, dateTo) &&
+              (!applyStoreFilter || r.store_id === scopeStore)) paid += r.paid_amount;
+        }
+      }
       return {
         campaign_id: camp.campaign_id, name: camp.name,
         coupon_type: camp.coupon_type, coupon_name: COUPON_TYPES[camp.coupon_type].name,
@@ -967,23 +988,32 @@
         issued: iss.length,
         claimed: set.filter((c) => ids.has(c.coupon_id) && c.claimed_at).length,
         used: set.filter((c) => ids.has(c.coupon_id) && c.redeemed_at).length,
-        paid_amount: round1(DB.redemption
-          .filter((r) => set.some((c) => c.coupon_id === r.coupon_id) &&
-                         inRange(r.redeemed_at, dateFrom, dateTo) &&
-                         (!applyStoreFilter || r.store_id === scopeStore))
-          .reduce((s, r) => s + r.paid_amount, 0)),
+        paid_amount: round1(paid),
       };
-    }).filter((x) => x.issued > 0 || DB.campaigns.some((c) => c.campaign_id === x.campaign_id));
+    });
 
-    // 每日趋势：三事件分别按各自发生时间
+    // 每日趋势：一次遍历按日期分桶，替代「每天 × 全部券」的重复 filter
     const days = [];
     let cur = dateFrom;
     while (cur <= dateTo && days.length < 400) { days.push(cur); cur = addDays(cur, 1); }
+    const issuedByDay = new Map(), claimedByDay = new Map(), usedByDay = new Map();
+    for (const c of coupons) {
+      const di = c.issued_at.slice(0, 10);
+      issuedByDay.set(di, (issuedByDay.get(di) || 0) + 1);
+      if (c.claimed_at) {
+        const dc = c.claimed_at.slice(0, 10);
+        claimedByDay.set(dc, (claimedByDay.get(dc) || 0) + 1);
+      }
+      if (c.redeemed_at) {
+        const dr = c.redeemed_at.slice(0, 10);
+        usedByDay.set(dr, (usedByDay.get(dr) || 0) + 1);
+      }
+    }
     const trend = days.map((d) => ({
       date: d,
-      issued: coupons.filter((c) => c.issued_at.slice(0, 10) === d).length,
-      claimed: coupons.filter((c) => c.claimed_at && c.claimed_at.slice(0, 10) === d).length,
-      used: coupons.filter((c) => c.redeemed_at && c.redeemed_at.slice(0, 10) === d).length,
+      issued: issuedByDay.get(d) || 0,
+      claimed: claimedByDay.get(d) || 0,
+      used: usedByDay.get(d) || 0,
     }));
 
     // 相关订单实付

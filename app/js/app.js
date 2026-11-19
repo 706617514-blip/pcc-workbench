@@ -163,10 +163,15 @@
   }
 
   /** 切页：改 hash，由 hashchange 统一渲染（避免双渲染与状态不同步） */
-  function setHash(page) {
-    const h = '#/' + page;
+  function setHash(target) {
+    // target 可以是 'manage' 或 'manage?tab=auto'（页面名 + 可选子状态）
+    const page = target.split('?')[0];
+    const h = '#/' + target;
     if (location.hash === h) {
-      if (S.page !== page) { S.page = page; render(); }
+      // 同地址时也要同步子状态：从 #/manage 进入 #/manage?tab=auto 之外的场景
+      const beforeTab = activeManageTab();
+      applyHashTab(pageFromHash());
+      if (S.page !== page || activeManageTab() !== beforeTab) render();
       scrollTop();
       return;
     }
@@ -555,11 +560,12 @@
     const campSet = S.ov.campaignIds && S.ov.campaignIds.length ? new Set(S.ov.campaignIds) : null;
     const scopeStore = store ? acc.scope_id : S.ov.storeFilter;
     const eligible = new Map();
+    const campById = new Map(DB.campaigns.map((c) => [c.campaign_id, c]));
     DB.couponInstance.forEach((cp) => {
       if (typeSet && !typeSet.has(cp.coupon_type)) return;
       if (campSet && !campSet.has(cp.campaign_id)) return;
       if (scopeStore && scopeStore !== '__all') {
-        const camp = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
+        const camp = campById.get(cp.campaign_id);
         if (!E.campaignCoversStore(camp, scopeStore)) return;
       }
       eligible.set(cp.coupon_id, cp);
@@ -2071,10 +2077,7 @@
       defs.forEach((d) => {
         const b = el('button', 'tab' + (S.storeManageTab === d.k ? ' active' : ''), esc(d.l));
         b.type = 'button';
-        b.addEventListener('click', () => {
-          S.storeManageTab = d.k;
-          setHash('manage?tab=' + d.k);
-        });
+        b.addEventListener('click', () => setHash('manage?tab=' + d.k));
         tabs.appendChild(b);
       });
       host.appendChild(tabs);
@@ -2128,7 +2131,7 @@
     defs.forEach((d) => {
       const b = el('button', 'tab' + (S.manageTab === d.k ? ' active' : ''), esc(d.l));
       b.type = 'button';
-      b.addEventListener('click', () => { S.manageTab = d.k; setHash('manage?tab=' + d.k); });
+      b.addEventListener('click', () => setHash('manage?tab=' + d.k));
       tabs.appendChild(b);
     });
     const right = el('div', 'tabs-right');
