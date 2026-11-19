@@ -513,8 +513,10 @@
   }
 
   /* ================================================================
-   * 页面 1 —— 数据大盘（极简版）
-   * 从上到下只回答四个问题：现在怎样 / 走势如何 / 谁好谁差 / 什么时段核销最多。
+   * 页面 1 —— 数据中心（极简四问 + 原位聚焦详情）
+   * 从上到下四问：现在怎样 / 走势如何 / 谁好谁差 / 什么时段核销最多。
+   * 任一模块可原位放大：其余模块收进底部玻璃缩略条，点击缩略条切换，
+   * 返回或 Esc 时沿原路收回（FLIP）。
    * ==============================================================*/
 
   const HEAT_SLOTS = [
@@ -530,7 +532,7 @@
     'ov.heat.fri', 'ov.heat.sat', 'ov.heat.sun',
   ];
 
-  /** 沿用 PCC 浅柠檬 → 沙色 → 玫瑰 → 深酒红的浅到深标尺 */
+  /** 沿用 PCC 浅柠檬 → 沙色 → 玫瑰 → 深酒红的浅到深标尺（半透明以便叠毛玻璃高光） */
   function heatColor(ratio) {
     const stops = [[255, 248, 202], [240, 217, 200], [226, 186, 178], [107, 11, 12]];
     const x = Math.max(0, Math.min(1, ratio));
@@ -538,12 +540,100 @@
     const i = Math.min(stops.length - 2, Math.floor(p));
     const f = p - i;
     const c = stops[i].map((v, j) => Math.round(v + (stops[i + 1][j] - v) * f));
-    return `rgb(${c.join(',')})`;
+    return `rgba(${c.join(',')},${(0.30 + x * 0.62).toFixed(3)})`;
   }
 
   function mondayOf(dateStr) {
     const d = E.utils.d2(dateStr);
     return E.utils.iso(new Date(d.getTime() - ((d.getDay() + 6) % 7) * 86400000));
+  }
+
+  /** 与 computeMetrics 完全同口径的核销记录（含券种、门店、日期筛选） */
+  function scopedRedemptions(acc, store) {
+    const typeSet = S.ov.couponTypes && S.ov.couponTypes.length ? new Set(S.ov.couponTypes) : null;
+    const campSet = S.ov.campaignIds && S.ov.campaignIds.length ? new Set(S.ov.campaignIds) : null;
+    const scopeStore = store ? acc.scope_id : S.ov.storeFilter;
+    const eligible = new Map();
+    DB.couponInstance.forEach((cp) => {
+      if (typeSet && !typeSet.has(cp.coupon_type)) return;
+      if (campSet && !campSet.has(cp.campaign_id)) return;
+      if (scopeStore && scopeStore !== '__all') {
+        const camp = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
+        if (!E.campaignCoversStore(camp, scopeStore)) return;
+      }
+      eligible.set(cp.coupon_id, cp);
+    });
+    return DB.redemption.filter((rd) => {
+      const cp = eligible.get(rd.coupon_id);
+      if (!cp) return false;
+      const d = (rd.redeemed_at || '').slice(0, 10);
+      if (d < S.ov.dateFrom || d > S.ov.dateTo) return false;
+      if (scopeStore && scopeStore !== '__all' && rd.store_id !== scopeStore) return false;
+      return true;
+    }).map((rd) => Object.assign({}, rd, { coupon: eligible.get(rd.coupon_id) }));
+  }
+
+  /* ------------------------------ 详情视图小组件（丰富但不复杂） */
+
+  function detailBars(rows, onPick) {
+    const wrap = el('div', 'detail-bars');
+    if (!rows.length) { wrap.appendChild(el('div', 'empty', t('ov.detail.empty'))); return wrap; }
+    const max = rows.reduce((m, r) => Math.max(m, r.value || 0), 0) || 1;
+    rows.forEach((r) => {
+      const b = el('button', 'detail-bar-row');
+      b.type = 'button';
+      const w = Math.max(1.5, ((r.value || 0) / max) * 100);
+      b.innerHTML = `<span class="db-name">${esc(r.name)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</span>
+        <span class="db-track"><i style="width:${w.toFixed(1)}%"></i></span>
+        <b>${esc(r.text)}</b>`;
+      if (typeof onPick === 'function') b.addEventListener('click', () => onPick(r));
+      else b.disabled = true;
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
+  function detailChart(title, series, height) {
+    const box = el('div', 'detail-chart');
+    box.appendChild(el('div', 'detail-chart-title', esc(title)));
+    const c = el('canvas');
+    box.appendChild(c);
+    requestAnimationFrame(() => lineChart(c, series, { height: height || 180 }));
+    return box;
+  }
+
+  function detailStats(items) {
+    const s = el('div', 'detail-stats');
+    items.forEach((x) => {
+      const d = el('div', 'detail-stat');
+      d.innerHTML = `<span>${esc(x.label)}</span><b>${esc(x.value)}</b>`;
+      s.appendChild(d);
+    });
+    return s;
+  }
+
+  function detailSection(title, node, hint) {
+    const s = el('div', 'detail-section');
+    s.appendChild(el('div', 'detail-section-head', esc(title) + (hint ? ` · ${esc(hint)}` : '')));
+    s.appendChild(node);
+    return s;
+  }
+
+  function detailList(items, emptyText) {
+    const w = el('div', 'detail-list');
+    if (!items.length) { w.appendChild(el('div', 'empty', emptyText || t('ov.detail.empty'))); return w; }
+    items.forEach((x) => {
+      const row = el('div', 'detail-list-row');
+      row.innerHTML = `<div class="dl-main"><b>${esc(x.title)}</b><span>${esc(x.meta || '')}</span></div>${x.tag ? `<em>${esc(x.tag)}</em>` : ''}`;
+      w.appendChild(row);
+    });
+    return w;
+  }
+
+  function groupSum(rows, keyFn, valFn) {
+    const m = new Map();
+    rows.forEach((r) => { const k = keyFn(r); m.set(k, (m.get(k) || 0) + (valFn ? valFn(r) : 1)); });
+    return Array.from(m, ([k, v]) => ({ name: k, value: v }));
   }
 
   function renderOverview(host) {
@@ -625,8 +715,111 @@
     row.appendChild(reset);
     host.appendChild(bar);
 
+    /* ---------- 模块聚焦骨架：正常流 / 主视图 / 底部缩略条 ---------- */
+    const board = el('div', 'dash-board');
+    const toolbar = el('div', 'focus-toolbar');
+    toolbar.innerHTML = `<button class="focus-back" type="button">${DASH_ICONS.collapse}<span>${esc(t('ov.focus.back'))}</span></button>
+      <span class="focus-crumb"></span><span class="focus-tip">${esc(t('ov.focus.tip'))}</span>`;
+    const normalFlow = el('div', 'dash-normal');
+    const kpiRow = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
+    const chartCol = el('div', 'dash-chart-home');
+    const lower = el('div', 'dash-lower');
+    const couponCol = el('div', 'dash-lower-col');
+    const heatCol = el('div', 'dash-lower-col');
+    lower.appendChild(couponCol); lower.appendChild(heatCol);
+    normalFlow.appendChild(kpiRow);
+    normalFlow.appendChild(chartCol);
+    normalFlow.appendChild(lower);
+    const stage = el('div', 'dash-stage');
+    const strip = el('div', 'dash-thumbstrip');
+    board.appendChild(toolbar);
+    board.appendChild(normalFlow);
+    board.appendChild(stage);
+    board.appendChild(strip);
+    host.appendChild(board);
+
+    const mods = [];
+    /** 包装模块：平时留在原布局位置，聚焦时移入 stage，其余移入 strip */
+    function addMod(cfg) {
+      const wrap = el('div', 'dash-module');
+      wrap.dataset.mod = cfg.key;
+      if (cfg.kind) wrap.dataset.kind = cfg.kind;
+      const full = el('div', 'mod-full');
+      full.appendChild(cfg.node);
+      wrap.appendChild(full);
+      const ex = el('button', 'mod-expand');
+      ex.type = 'button';
+      ex.title = t('ov.focus.expand');
+      ex.setAttribute('aria-label', t('ov.focus.expand'));
+      ex.innerHTML = DASH_ICONS.expand;
+      ex.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
+      wrap.appendChild(ex);
+      const thumb = el('button', 'mod-thumb');
+      thumb.type = 'button';
+      thumb.innerHTML = `<span class="thumb-ic">${cfg.icon || ''}</span>
+        <span class="thumb-txt"><b>${esc(cfg.title)}</b><span>${esc(cfg.meta || '')}</span></span>`;
+      thumb.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
+      wrap.appendChild(thumb);
+      wrap.addEventListener('click', (ev) => {
+        if (S.ov.focus) return;
+        if (ev.target.closest('button, a, input, select, canvas, .dropdown-panel, .calendar')) return;
+        focusTo(cfg.key);
+      });
+      cfg.home.appendChild(wrap);
+      mods.push({ key: cfg.key, title: cfg.title, wrap, home: cfg.home, anchor: cfg.anchor || null, detail: cfg.detail || null });
+      return wrap;
+    }
+
+    /** FLIP：记录旧位置 → 改 DOM → 从旧位置平滑 anim 回新位置 */
+    function focusTo(key, instant) {
+      const cur = S.ov.focus;
+      if (cur === key) return;
+      const first = new Map();
+      mods.forEach((m) => { if (m.wrap.isConnected) first.set(m.wrap, m.wrap.getBoundingClientRect()); });
+      mods.forEach((m) => m.wrap.getAnimations().forEach((a) => a.cancel()));
+
+      if (key) {
+        const target = mods.find((m) => m.key === key);
+        if (!target) return;
+        board.classList.add('is-focused');
+        stage.appendChild(target.wrap);
+        mods.filter((m) => m !== target).forEach((m) => strip.appendChild(m.wrap));
+        toolbar.querySelector('.focus-crumb').innerHTML = `${esc(t('ov.focus.crumb'))}：<b>${esc(target.title)}</b>`;
+        if (target.detail) target.detail();
+      } else {
+        board.classList.remove('is-focused');
+        mods.forEach((m) => {
+          if (m.anchor && m.anchor.parentNode === m.home) m.home.insertBefore(m.wrap, m.anchor);
+          else m.home.appendChild(m.wrap);
+        });
+      }
+      S.ov.focus = key;
+
+      if (!instant) {
+        mods.forEach((m) => {
+          const f = first.get(m.wrap);
+          if (!f) return;
+          const l = m.wrap.getBoundingClientRect();
+          if (l.width < 1 || l.height < 1) return;
+          const dx = f.left - l.left, dy = f.top - l.top;
+          const sx = f.width / l.width, sy = f.height / l.height;
+          if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < .01 && Math.abs(sy - 1) < .01) return;
+          const anim = m.wrap.animate([
+            { transform: `translate(${dx}px,${dy}px) scale(${sx},${sy})`, opacity: .84 },
+            { transform: 'none', opacity: 1 },
+          ], { duration: 460, easing: 'cubic-bezier(.22,.8,.22,1)', fill: 'none' });
+          // 兜底：无头/后台节流环境下动画时间轴可能停住，定时清除避免残留 transform
+          setTimeout(() => { try { anim.cancel(); } catch (_) { /* noop */ } }, 520);
+        });
+      }
+      if (key === 'trend' || cur === 'trend') requestAnimationFrame(drawTrend);
+    }
+    toolbar.querySelector('.focus-back').addEventListener('click', () => focusTo(null));
+
+    /* ---------- 数据：全部实时来自引擎，不写死 ---------- */
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
+    const scoped = scopedRedemptions(acc, store);
     const scopeLabel = store ? E.utils.storeLabel(myStore)
       : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
@@ -646,32 +839,169 @@
       return { text: `${d >= 0 ? '↑' : '↓'} ${Math.abs(d).toFixed(1)}${isRate ? 'pt' : '%'} 较上期`, good };
     };
 
-    /* ---------- 模块 2：一排 4 个数字卡 ---------- */
-    const mg = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
-    if (store) {
-      mg.appendChild(kpiCard(t('ov.metric.used'), num(metrics.used), '本店发生的核销',
-        deltaOf(metrics.used, prev.used, false), DASH_ICONS.check, 'tone-lemon'));
-      mg.appendChild(kpiCard(t('ov.metric.paid'), money(metrics.paid_amount), '核销关联订单实付',
-        deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-blue'));
-      mg.appendChild(kpiCard(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0),
-        '总部与本店适用的运行中活动', null, DASH_ICONS.campaign, 'tone-rose'));
-      const risk = metrics.anomalies.length;
-      mg.appendChild(kpiCard(t('ov.metric.anomaly'), num(risk),
-        risk ? '需总部复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand'));
-    } else {
-      mg.appendChild(kpiCard(t('ov.metric.issued'), num(metrics.issued),
-        `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`,
-        deltaOf(metrics.issued, prev.issued, false), DASH_ICONS.ticket, 'tone-lemon'));
-      mg.appendChild(kpiCard(t('ov.label.claim_rate'), pct(metrics.claim_rate),
-        `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`,
-        deltaOf(metrics.claim_rate, prev.claim_rate, true), DASH_ICONS.check, 'tone-blue'));
-      mg.appendChild(kpiCard(t('ov.label.redeem_rate'), pct(metrics.redeem_rate),
-        `已核销 ${num(metrics.used_of_issued)} 张`,
-        deltaOf(metrics.redeem_rate, prev.redeem_rate, true), DASH_ICONS.campaign, 'tone-rose'));
-      mg.appendChild(kpiCard(t('ov.label.related_paid'), money(metrics.paid_amount), '本期核销带来的实际支付',
-        deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand'));
+    /* ---------- KPI 详情：每个指标回答一个更细的问题 ---------- */
+    function kpiBlocks(key) {
+      const blocks = [];
+      const dates = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
+      const typeName = (r) => (E.COUPON_TYPES[r.coupon && r.coupon.coupon_type] || {}).name || '其他';
+      const typeIssued = Object.values(metrics.byType).filter((x) => x.issued > 0)
+        .map((x) => ({ name: x.name, sub: x.discount_label, value: x.issued, text: num(x.issued), key: x.key }))
+        .sort((a, b) => b.value - a.value);
+      const typeClaim = Object.values(metrics.byType).filter((x) => x.issued > 0)
+        .map((x) => ({ name: x.name, sub: `已领 ${num(x.claimed)} / 发放 ${num(x.issued)}`, value: x.claim_rate, text: pct(x.claim_rate), key: x.key }))
+        .sort((a, b) => b.value - a.value);
+      const typeRedeem = Object.values(metrics.byType).filter((x) => x.issued > 0)
+        .map((x) => ({ name: x.name, sub: `已核销 ${num(x.used)} / 发放 ${num(x.issued)}`, value: x.redeem_rate, text: pct(x.redeem_rate), key: x.key }))
+        .sort((a, b) => b.value - a.value);
+      const campIssued = metrics.byCampaign.filter((x) => x.issued > 0)
+        .map((x) => ({ name: x.name, sub: `${x.coupon_name} · ${x.scope_label}`, value: x.issued, text: num(x.issued) }))
+        .sort((a, b) => b.value - a.value).slice(0, 6);
+      const paidByType = groupSum(scoped, typeName, (r) => r.paid_amount)
+        .map((x) => ({ ...x, text: money(x.value) })).sort((a, b) => b.value - a.value);
+      const usedByType = groupSum(scoped, typeName)
+        .map((x) => ({ ...x, text: num(x.value) + ' 笔' })).sort((a, b) => b.value - a.value);
+      const paidByStore = groupSum(scoped, (r) => E.utils.storeLabel(r.store_id), (r) => r.paid_amount)
+        .map((x) => ({ ...x, text: money(x.value) })).sort((a, b) => b.value - a.value);
+      const usedByStore = groupSum(scoped, (r) => E.utils.storeLabel(r.store_id))
+        .map((x) => ({ ...x, text: num(x.value) + ' 笔' })).sort((a, b) => b.value - a.value);
+      const paidByDay = groupSum(scoped, (r) => (r.redeemed_at || '').slice(5, 10), (r) => r.paid_amount);
+      const usedByDay = groupSum(scoped, (r) => (r.redeemed_at || '').slice(5, 10))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const slotUsed = groupSum(scoped, (r) => {
+        const h = Number((r.redeemed_at || '').slice(11, 13));
+        const s = HEAT_SLOTS.find((x) => h >= x.from && h < x.to);
+        return s ? t(s.labelKey) : '其他';
+      }).map((x) => ({ ...x, text: num(x.value) + ' 笔' })).sort((a, b) => b.value - a.value);
+      const pickCoupon = (r) => {
+        if (!r.key) return;
+        S.ov.couponTypes = [r.key];
+        render();
+        toast(t('ov.coupon.picked', { name: r.name }), 'ok');
+      };
+      const aov = scoped.length ? metrics.paid_amount / scoped.length : 0;
+
+      if (key === 'issued') {
+        blocks.push(detailStats([
+          { label: t('ov.detail.issued'), value: num(metrics.issued) },
+          { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
+          { label: t('ov.detail.campaigns'), value: num(metrics.byCampaign.filter((x) => x.issued > 0).length) },
+          { label: t('ov.detail.types'), value: num(typeIssued.length) },
+        ]));
+        blocks.push(detailChart(t('ov.detail.dayIssued'),
+          [{ labels: dates, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' }], 200));
+        blocks.push(detailSection(t('ov.detail.typeIssued'), detailBars(typeIssued, pickCoupon), t('ov.detail.clickHint')));
+        blocks.push(detailSection(t('ov.detail.campIssued'), detailBars(campIssued)));
+      } else if (key === 'claim') {
+        blocks.push(detailStats([
+          { label: t('ov.detail.issued'), value: num(metrics.issued) },
+          { label: t('ov.detail.claimed'), value: num(metrics.claimed_of_issued) },
+          { label: t('ov.detail.rate'), value: pct(metrics.claim_rate) },
+          { label: t('ov.detail.prev'), value: pct(prev.claim_rate) },
+        ]));
+        blocks.push(detailChart(t('ov.detail.dayClaim'), [
+          { labels: dates, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
+          { labels: dates, data: metrics.trend.map((x) => x.claimed), color: '#7FA8B4' },
+        ], 200));
+        blocks.push(detailSection(t('ov.detail.typeClaim'), detailBars(typeClaim, pickCoupon), t('ov.detail.clickHint')));
+      } else if (key === 'redeem') {
+        blocks.push(detailStats([
+          { label: t('ov.detail.issued'), value: num(metrics.issued) },
+          { label: t('ov.detail.used'), value: num(metrics.used_of_issued) },
+          { label: t('ov.detail.rate'), value: pct(metrics.redeem_rate) },
+          { label: t('ov.detail.prev'), value: pct(prev.redeem_rate) },
+        ]));
+        blocks.push(detailChart(t('ov.detail.dayUsed'),
+          [{ labels: dates, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }], 200));
+        blocks.push(detailSection(t('ov.detail.typeRedeem'), detailBars(typeRedeem, pickCoupon), t('ov.detail.clickHint')));
+        if (!store) blocks.push(detailSection(t('ov.detail.storeUsed'), detailBars(usedByStore)));
+      } else if (key === 'paid') {
+        blocks.push(detailStats([
+          { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
+          { label: t('ov.detail.count'), value: num(scoped.length) },
+          { label: t('ov.detail.aov'), value: money(aov) },
+          { label: t('ov.detail.prev'), value: money(prev.paid_amount) },
+        ]));
+        blocks.push(detailChart(t('ov.detail.dayPaid'), [
+          { labels: paidByDay.map((x) => x.name), data: paidByDay.map((x) => x.value), color: '#6B0B0C' },
+        ], 200));
+        blocks.push(detailSection(t('ov.detail.typePaid'), detailBars(paidByType)));
+        if (!store) blocks.push(detailSection(t('ov.detail.storePaid'), detailBars(paidByStore)));
+      } else if (key === 'used') {
+        blocks.push(detailStats([
+          { label: t('ov.detail.used'), value: num(metrics.used) },
+          { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
+          { label: t('ov.detail.aov'), value: money(aov) },
+          { label: t('ov.detail.prev'), value: num(prev.used) },
+        ]));
+        blocks.push(detailChart(t('ov.detail.dayUsed'), [
+          { labels: usedByDay.map((x) => x.name), data: usedByDay.map((x) => x.value), color: '#6B0B0C' },
+        ], 200));
+        blocks.push(detailSection(t('ov.detail.typeUsed'), detailBars(usedByType)));
+        blocks.push(detailSection(t('ov.detail.slotUsed'), detailBars(slotUsed)));
+      } else if (key === 'applicable') {
+        const apps = DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, acc.scope_id));
+        blocks.push(detailStats([
+          { label: t('ov.detail.applicable'), value: num(apps.length) },
+          { label: t('ov.detail.types'), value: num(new Set(apps.map((c) => c.coupon_type)).size) },
+        ]));
+        blocks.push(detailSection(t('ov.detail.applicable'), detailList(apps.map((c) => ({
+          title: c.name,
+          meta: `${E.COUPON_TYPES[c.coupon_type].name} · ${E.COUPON_TYPES[c.coupon_type].discount_label} · ${E.scopeLabelOf(c)}`,
+          tag: t('ov.detail.running'),
+        })))));
+      } else if (key === 'anomaly') {
+        blocks.push(detailStats([
+          { label: t('ov.metric.anomaly'), value: num(metrics.anomalies.length) },
+          { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
+        ]));
+        blocks.push(detailSection(t('ov.detail.anomaly'), detailList(metrics.anomalies.map((a) => ({
+          title: a.label, meta: `${a.code} · ${a.reason}`, tag: (a.at || '').slice(5, 16),
+        })), t('ov.detail.noAnomaly'))));
+      }
+      return blocks;
     }
-    host.appendChild(mg);
+
+    /* ---------- 模块 2：一排 4 个数字卡（每张可点开详情） ---------- */
+    const kpiDefs = store ? [
+      { key: 'used', title: t('ov.metric.used'), value: num(metrics.used), meta: `本店核销 ${num(metrics.used)}`, icon: DASH_ICONS.check,
+        card: kpiCard(t('ov.metric.used'), num(metrics.used), '本店发生的核销', deltaOf(metrics.used, prev.used, false), DASH_ICONS.check, 'tone-lemon') },
+      { key: 'paid', title: t('ov.metric.paid'), value: money(metrics.paid_amount), meta: `实付 ${money(metrics.paid_amount)}`, icon: DASH_ICONS.coin,
+        card: kpiCard(t('ov.metric.paid'), money(metrics.paid_amount), '核销关联订单实付', deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-blue') },
+      { key: 'applicable', title: t('ov.metric.applicable'), value: num(metrics.applicable_campaigns || 0), meta: '本店可核销活动', icon: DASH_ICONS.campaign,
+        card: kpiCard(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0), '总部与本店适用的运行中活动', null, DASH_ICONS.campaign, 'tone-rose') },
+      { key: 'anomaly', title: t('ov.metric.anomaly'), value: num(metrics.anomalies.length), meta: '需复核记录', icon: DASH_ICONS.alert,
+        card: kpiCard(t('ov.metric.anomaly'), num(metrics.anomalies.length), metrics.anomalies.length ? '需总部复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand') },
+    ] : [
+      { key: 'issued', title: t('ov.metric.issued'), value: num(metrics.issued), meta: `发放 ${num(metrics.issued)}`, icon: DASH_ICONS.ticket,
+        card: kpiCard(t('ov.metric.issued'), num(metrics.issued), `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`, deltaOf(metrics.issued, prev.issued, false), DASH_ICONS.ticket, 'tone-lemon') },
+      { key: 'claim', title: t('ov.label.claim_rate'), value: pct(metrics.claim_rate), meta: `领取率 ${pct(metrics.claim_rate)}`, icon: DASH_ICONS.check,
+        card: kpiCard(t('ov.label.claim_rate'), pct(metrics.claim_rate), `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`, deltaOf(metrics.claim_rate, prev.claim_rate, true), DASH_ICONS.check, 'tone-blue') },
+      { key: 'redeem', title: t('ov.label.redeem_rate'), value: pct(metrics.redeem_rate), meta: `核销率 ${pct(metrics.redeem_rate)}`, icon: DASH_ICONS.campaign,
+        card: kpiCard(t('ov.label.redeem_rate'), pct(metrics.redeem_rate), `已核销 ${num(metrics.used_of_issued)} 张`, deltaOf(metrics.redeem_rate, prev.redeem_rate, true), DASH_ICONS.campaign, 'tone-rose') },
+      { key: 'paid', title: t('ov.label.related_paid'), value: money(metrics.paid_amount), meta: `实付 ${money(metrics.paid_amount)}`, icon: DASH_ICONS.coin,
+        card: kpiCard(t('ov.label.related_paid'), money(metrics.paid_amount), '本期核销带来的实际支付', deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand') },
+    ];
+    kpiDefs.forEach((def) => {
+      const body = el('div', 'kpi-module-body');
+      body.appendChild(def.card);
+      const detail = el('div', 'kpi-detail');
+      body.appendChild(detail);
+      addMod({
+        key: def.key, title: def.title, meta: def.meta, icon: def.icon,
+        node: body, home: kpiRow, kind: 'kpi',
+        detail: () => {
+          if (detail.dataset.built) return;
+          const p = panel(def.title, t('ov.detail.sub'), def.icon);
+          p.body.classList.add('detail-body');
+          const hero = el('div', 'detail-hero');
+          hero.innerHTML = `<span>${esc(def.title)}</span><b>${esc(def.value)}</b>${def.card.querySelector('.kpi-delta') ? `<em class="${def.card.querySelector('.kpi-delta').className.replace('kpi-delta', '').trim()}">${esc(def.card.querySelector('.kpi-delta').textContent)}</em>` : ''}`;
+          p.body.appendChild(hero);
+          kpiBlocks(def.key).forEach((b) => p.body.appendChild(b));
+          detail.appendChild(p.root);
+          detail.dataset.built = '1';
+        },
+      });
+    });
 
     /* ---------- 模块 3：发放与核销趋势（总部两条线，门店一条线） ---------- */
     const chartCard = el('div', 'chart-card dash-chart');
@@ -684,7 +1014,11 @@
       </div>`;
     const canvas = el('canvas');
     chartCard.appendChild(canvas);
-    host.appendChild(chartCard);
+    addMod({
+      key: 'trend', title: t(store ? 'ov.trend.store' : 'ov.trend.simple'),
+      meta: `${metrics.trend.length} 天`, icon: DASH_ICONS.chart,
+      node: chartCard, home: chartCol,
+    });
 
     function drawTrend() {
       const labels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
@@ -694,7 +1028,7 @@
             { labels, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
             { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: 240 });
+      lineChart(canvas, series, { height: S.ov.focus === 'trend' ? 420 : 240 });
     }
     requestAnimationFrame(drawTrend);
 
@@ -723,9 +1057,12 @@
         couponPanel.body.appendChild(b);
       });
     }
-    host.appendChild(couponPanel.root);
+    addMod({
+      key: 'coupon', title: t('ov.coupon.bar'), meta: `${rateRows.length} 个券种`,
+      icon: DASH_ICONS.ticket, node: couponPanel.root, home: couponCol,
+    });
 
-    /* ---------- 模块 5：核销时段热力图 ---------- */
+    /* ---------- 模块 5：核销时段热力图（跟随顶部日期筛选） ---------- */
     const heat = el('section', 'dash-panel heat-panel');
     const heatHead = el('div', 'dash-panel-head heat-head');
     heatHead.innerHTML = `<div class="dash-panel-icon">${DASH_ICONS.chart}</div>
@@ -750,35 +1087,42 @@
     heat.appendChild(heatHead);
     const heatBody = el('div', 'dash-panel-body heat-body');
     heat.appendChild(heatBody);
-    host.appendChild(heat);
+    addMod({
+      key: 'heat', title: t('ov.heat.title'), meta: t('ov.heat.sub'),
+      icon: DASH_ICONS.chart, node: heat, home: heatCol,
+    });
 
     function drawHeat() {
       heatBody.innerHTML = '';
       let rows = [];
       let aggregated = false;
+      // 锚点跟随顶部日期筛选的终点；行区间再与筛选范围取交集
+      const anchor = S.ov.dateTo;
+      const clamp = (s, e) => {
+        const a = s < S.ov.dateFrom ? S.ov.dateFrom : s;
+        const b = e > S.ov.dateTo ? S.ov.dateTo : e;
+        return a > b ? null : { from: a, to: b };
+      };
 
       if (S.ov.heatView === 'week') {
-        // 本周：以数据锚点所在周的周一为起点，固定 7 行（周一至周日）
-        const monday = mondayOf(C.DATA_TODAY);
+        const monday = mondayOf(anchor);
         rows = Array.from({ length: 7 }, (_, i) => {
           const d = E.utils.addDays(monday, i);
-          return { from: d, to: d, label: `${t(HEAT_WEEKDAYS[i])} ${d.slice(5).replace('-', '/')}` };
-        });
+          const c = clamp(d, d);
+          return c ? { ...c, label: `${t(HEAT_WEEKDAYS[i])} ${d.slice(5).replace('-', '/')}` } : null;
+        }).filter(Boolean);
       } else if (S.ov.heatView === 'month') {
-        // 本月：按自然周聚合成固定的第 1~5 周
-        const ym = C.DATA_TODAY.slice(0, 7);
+        const ym = anchor.slice(0, 7);
         const first = `${ym}-01`;
         const monthEnd = E.utils.iso(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0));
         const firstMon = mondayOf(first);
         rows = Array.from({ length: 5 }, (_, i) => {
           const ws = E.utils.addDays(firstMon, i * 7);
           const we = E.utils.addDays(ws, 6);
-          const s = ws < first ? first : ws;
-          const e = we > monthEnd ? monthEnd : we;
-          return { from: s, to: e, label: t('ov.heat.weekN', { n: i + 1 }) };
-        });
+          const c = clamp(ws < first ? first : ws, we > monthEnd ? monthEnd : we);
+          return c ? { ...c, label: t('ov.heat.weekN', { n: i + 1 }) } : null;
+        }).filter(Boolean);
       } else {
-        // 自定义：直接读取顶部日期筛选器；超过 14 天自动按周聚合
         const from = S.ov.dateFrom;
         const to = S.ov.dateTo;
         const days = Math.max(0, Math.round((E.utils.d2(to) - E.utils.d2(from)) / 86400000) + 1);
@@ -807,30 +1151,12 @@
         while (d <= r.to && guard++ < 400) { rowByDate.set(d, i); d = E.utils.addDays(d, 1); }
       });
 
-      // 与 E.computeMetrics 相同的券种 / 活动 / 门店口径，再取 DB.redemption 的核销时刻
-      const typeSet = S.ov.couponTypes && S.ov.couponTypes.length ? new Set(S.ov.couponTypes) : null;
-      const campSet = S.ov.campaignIds && S.ov.campaignIds.length ? new Set(S.ov.campaignIds) : null;
-      const scopeStore = store ? myStore : S.ov.storeFilter;
-      const eligible = new Set();
-      DB.couponInstance.forEach((cp) => {
-        if (typeSet && !typeSet.has(cp.coupon_type)) return;
-        if (campSet && !campSet.has(cp.campaign_id)) return;
-        if (scopeStore && scopeStore !== '__all') {
-          const camp = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
-          if (!E.campaignCoversStore(camp, scopeStore)) return;
-        }
-        eligible.add(cp.coupon_id);
-      });
-
       const grid = rows.map(() => HEAT_SLOTS.map(() => 0));
       let total = 0;
-      DB.redemption.forEach((rd) => {
-        if (!eligible.has(rd.coupon_id)) return;
-        if (scopeStore && scopeStore !== '__all' && rd.store_id !== scopeStore) return;
-        const ts = rd.redeemed_at || '';
-        const row = rowByDate.get(ts.slice(0, 10));
+      scoped.forEach((rd) => {
+        const row = rowByDate.get((rd.redeemed_at || '').slice(0, 10));
         if (row == null) return;
-        const hour = Number(ts.slice(11, 13));
+        const hour = Number((rd.redeemed_at || '').slice(11, 13));
         const slot = HEAT_SLOTS.findIndex((s) => hour >= s.from && hour < s.to);
         if (slot < 0) return;
         grid[row][slot]++;
@@ -847,7 +1173,12 @@
       const headRow = el('div', 'heat-row');
       headRow.appendChild(el('div', 'heat-row-label heat-corner', esc(t('ov.heat.date'))));
       const slotHead = el('div', 'heat-grid');
-      HEAT_SLOTS.forEach((s) => slotHead.appendChild(el('div', 'heat-slot', esc(t(s.labelKey)))));
+      HEAT_SLOTS.forEach((s) => {
+        const full = t(s.labelKey);
+        const h = el('div', 'heat-slot', esc(full.split(' ')[0]));
+        h.title = full;
+        slotHead.appendChild(h);
+      });
       headRow.appendChild(slotHead);
       table.appendChild(headRow);
 
@@ -858,8 +1189,8 @@
         HEAT_SLOTS.forEach((s, j) => {
           const v = grid[i][j];
           const ratio = max > 0 ? Math.sqrt(v / max) : 0;
-          const cell = el('div', 'heat-cell' + (peaks.has(`${i}:${j}`) ? ' is-peak' : '') + (ratio > .55 ? ' on-dark' : ''));
-          cell.style.background = heatColor(ratio);
+          const cell = el('div', 'heat-cell' + (peaks.has(`${i}:${j}`) ? ' is-peak' : '') + (ratio > .62 ? ' on-dark' : ''));
+          cell.style.backgroundColor = heatColor(ratio);
           cell.textContent = String(v);
           cell.title = `${r.label} · ${t(s.labelKey)}：${v} ${t('ov.heat.unit')}`;
           cells.appendChild(cell);
@@ -880,7 +1211,7 @@
     // 筛选后无数据时的空态提示保留
     if (!metrics.issued && !metrics.used) {
       const em = el('div', 'empty');
-      em.innerHTML = `<div class="empty-title">当前筛选范围内没有数据</div>`;
+      em.innerHTML = `<div class="empty-title">${esc(t('ov.empty'))}</div>`;
       const acts = el('div', 'empty-actions');
       const b1 = el('button', 'btn btn-ghost btn-sm', '清除筛选');
       b1.addEventListener('click', () => {
@@ -896,7 +1227,14 @@
       });
       acts.appendChild(b1); acts.appendChild(b2);
       em.appendChild(acts);
-      host.appendChild(em);
+      normalFlow.appendChild(em);
+    }
+
+    // 筛选 / 语言切换会重建页面：恢复聚焦模块（无动画，避免闪烁）
+    if (S.ov.focus) {
+      const keep = S.ov.focus;
+      S.ov.focus = null;
+      focusTo(keep, true);
     }
   }
 
@@ -2998,5 +3336,10 @@
   }
 
   /* ------------------------------------------------------------ 启动 */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || S.page !== 'overview' || !S.ov.focus) return;
+    const back = $('#content .focus-back');
+    if (back) back.click();
+  });
   document.addEventListener('DOMContentLoaded', boot);
 })(window);
