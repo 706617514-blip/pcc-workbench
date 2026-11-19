@@ -2339,12 +2339,9 @@
     const storeName = E.utils.storeLabel(acc.scope_id || c.store_id || '');
 
     const resultBlock = store
-      ? `<div class="notice grey" style="margin-top:20px">${esc(t('rule.claim_redeem', { store: storeName }))}</div>`
-      : `<div style="margin-top:20px">
-          <div class="cd-result-head">
-            <div style="font-size:15px;font-weight:700">发放结果</div>
-            <span class="cd-hint">${esc(t('cd.hint'))}</span>
-          </div>
+      ? `<div class="notice grey cd-result">${esc(t('rule.claim_redeem', { store: storeName }))}</div>`
+      : `<div class="cd-result">
+          <div class="cd-sec"><span class="cd-sec-t">发放结果</span><span class="cd-sec-line"></span><span class="cd-hint">${esc(t('cd.hint'))}</span></div>
           <div class="metrics metrics-4 cd-metrics" style="margin-bottom:0">
             <button type="button" class="metric cd-metric" data-cd="issued" style="min-height:auto;padding:14px 16px">
               <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(issued.length))}</div></button>
@@ -2362,25 +2359,28 @@
       ruleLines.push(t('rule.redeem_store', { store: storeName }));
     }
 
-    const body = el('div');
+    // 信息项改为「卡片网格」：标签在上、值在下，铺满宽弹窗，避免横排中间大片留白
+    const infoCard = (k, v, cls = '') => `<div class="cd-info${cls ? ' ' + cls : ''}"><span class="cd-info-k">${esc(k)}</span><div class="cd-info-v">${v}</div></div>`;
+    const body = el('div', 'cd-detail');
     body.innerHTML = `
-      <div class="dl-row"><span class="k">活动编号</span><span class="v mono">${esc(c.campaign_id)}</span></div>
-      <div class="dl-row"><span class="k">券种</span><span class="v">${esc(ct.name)} · ${esc(ct.discount_label)}</span></div>
-      <div class="dl-row"><span class="k">触发条件</span><span class="v">${esc(ct.trigger_label)}</span></div>
-      <div class="dl-row"><span class="k">有效期</span><span class="v">${esc(ct.validity_label)}</span></div>
-      <div class="dl-row"><span class="k">每人次数</span><span class="v">${esc(ct.per_member_label)}</span></div>
-      <div class="dl-row"><span class="k">积分同用</span><span class="v">${esc(ct.stack_label)}</span></div>
-      <div class="dl-row"><span class="k">${esc(t(store ? 'dlg.scope.redeem' : 'mg.scope'))}</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
-      ${c.source === 'store_submit' ? `<div class="dl-row"><span class="k">${esc(t('manage.source'))}</span><span class="v">${esc(E.utils.storeLabel(c.store_id))}</span></div>` : ''}
-      <div class="dl-row"><span class="k">目标人群</span><span class="v">${esc(c.segment_definition || '—')}</span></div>
-      <div class="dl-row"><span class="k">创建人 / 时间</span><span class="v">${esc(c.created_by)} · ${esc(c.created_at)}</span></div>
-      <div class="dl-row"><span class="k">状态</span><span class="v">${statusChip(c.status)}</span></div>
+      <div class="cd-sec"><span class="cd-sec-t">活动概览</span><span class="cd-sec-line"></span></div>
+      <div class="cd-info-grid">
+        ${infoCard('活动编号', `<span class="mono">${esc(c.campaign_id)}</span>`)}
+        ${infoCard('券种', esc(ct.name) + ' · ' + esc(ct.discount_label))}
+        ${infoCard('触发条件', esc(ct.trigger_label))}
+        ${infoCard('有效期', esc(ct.validity_label))}
+        ${infoCard('每人次数', esc(ct.per_member_label))}
+        ${infoCard('积分同用', esc(ct.stack_label))}
+        ${infoCard(t(store ? 'dlg.scope.redeem' : 'mg.scope'), esc(E.scopeLabelOf(c)), c.source === 'store_submit' ? '' : 'cd-info-wide')}
+        ${c.source === 'store_submit' ? infoCard(t('manage.source'), esc(E.utils.storeLabel(c.store_id))) : ''}
+        ${infoCard('目标人群', esc(c.segment_definition || '—'), 'cd-info-wide')}
+        ${infoCard('创建人 / 时间', esc(c.created_by) + ' · ' + esc((c.created_at || '').replace('T', ' ')))}
+        ${infoCard('状态', statusChip(c.status))}
+      </div>
       ${resultBlock}
-      <div style="margin-top:20px">
-        <div style="font-size:15px;font-weight:700;margin-bottom:8px">券规则</div>
-        <ul style="margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-2);line-height:1.9">
-          ${ruleLines.map((r) => `<li>${esc(r)}</li>`).join('')}
-        </ul>
+      <div class="cd-rules">
+        <div class="cd-sec"><span class="cd-sec-t">券规则</span><span class="cd-sec-line"></span></div>
+        <ul>${ruleLines.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
       </div>`;
 
     const foot = el('div', '');
