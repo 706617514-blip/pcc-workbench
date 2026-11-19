@@ -1047,6 +1047,10 @@
     });
 
     /* ---------- 模块 3：发放与核销趋势（总部两条线，门店一条线） ---------- */
+    const primaryTrend = metrics.trend.map((x) => (store ? x.used : x.issued));
+    const trendAvg = primaryTrend.length ? primaryTrend.reduce((a, b) => a + b, 0) / primaryTrend.length : 0;
+    const trendPeak = primaryTrend.length ? Math.max(...primaryTrend) : 0;
+    const trendLow = primaryTrend.length ? Math.min(...primaryTrend) : 0;
     const chartCard = el('div', 'chart-card dash-chart');
     chartCard.innerHTML = `<div class="chart-head">
         <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend.simple'))}</div>
@@ -1055,6 +1059,11 @@
           <span><i class="${store ? 'lg-issued' : 'lg-used'}"></i>${esc(t('ov.legend.used'))}</span>
         </div>
       </div>`;
+    const trendInsight = el('div', 'trend-insight');
+    trendInsight.innerHTML = `<span>${esc(t('ov.trend.avg'))} <b>${num(Math.round(trendAvg))}</b> / ${esc(t('ov.trend.day'))}</span>
+      <span>${esc(t('ov.trend.peak'))} <b>${num(trendPeak)}</b></span>
+      <span>${esc(t('ov.trend.low'))} <b>${num(trendLow)}</b></span>`;
+    chartCard.appendChild(trendInsight);
     const canvas = el('canvas');
     chartCard.appendChild(canvas);
     addMod({
@@ -1230,9 +1239,10 @@
     } else {
       rateRows.forEach((x) => {
         const width = maxRate > 0 ? Math.max(2, (x.redeem_rate / maxRate) * 100) : 0;
-        const b = el('button', 'rate-row');
+        const b = el('button', 'rate-row coupon-rate');
         b.type = 'button';
-        b.innerHTML = `<span class="rate-name">${esc(x.name)}<small>${esc(x.discount_label)}</small></span>
+        b.style.setProperty('--donut-deg', (Math.min(1, x.redeem_rate) * 300).toFixed(1) + 'deg');
+        b.innerHTML = `<span class="rate-name">${esc(x.name)}<small>${esc(x.discount_label)} · ${num(x.used)} ${esc(t('ov.heat.unit'))}</small></span>
           <span class="rate-track"><i class="rate-fill" style="width:${width.toFixed(1)}%"></i></span>
           <b class="rate-val">${esc(pct(x.redeem_rate))}</b>`;
         b.title = `${x.name} · ${t('ov.coupon.picked', { name: x.name })}`;

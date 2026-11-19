@@ -64,8 +64,51 @@ STORES = [
     {"store_id": "PCC-TSW10", "name": "天水围店",   "district": "元朗",   "type": "residential", "weight": 0.60},
     {"store_id": "PCC-HFC11", "name": "鲗鱼涌太古坊店", "district": "东区", "type": "office",  "weight": 0.90},
     {"store_id": "PCC-KEL12", "name": "九龙塘店",   "district": "九龙城", "type": "campus",   "weight": 0.85},
+    {"store_id": "PCC-ADM13", "name": "金钟店",       "district": "中西区", "type": "office",   "weight": 1.10},
+    {"store_id": "PCC-SHW14", "name": "上环店",       "district": "中西区", "type": "office",   "weight": 0.92},
+    {"store_id": "PCC-WCH15", "name": "西营盘店",     "district": "中西区", "type": "residential", "weight": 0.68},
+    {"store_id": "PCC-HPW16", "name": "跑马地道店",   "district": "湾仔",   "type": "office",     "weight": 0.80},
+    {"store_id": "PCC-NPT17", "name": "北角店",       "district": "东区",   "type": "residential", "weight": 0.78},
+    {"store_id": "PCC-TSK18", "name": "将军澳店",     "district": "西贡区", "type": "mall",       "weight": 0.92},
+    {"store_id": "PCC-KWC19", "name": "葵涌店",       "district": "葵青区", "type": "residential", "weight": 0.66},
+    {"store_id": "PCC-TWW20", "name": "荃湾店",       "district": "荃湾区", "type": "retail",      "weight": 0.88},
+    {"store_id": "PCC-TYI21", "name": "青衣店",       "district": "葵青区", "type": "residential", "weight": 0.64},
+    {"store_id": "PCC-TMN22", "name": "屯门店",       "district": "屯门区", "type": "mall",       "weight": 0.72},
+    {"store_id": "PCC-TPO23", "name": "大埔店",       "district": "大埔区", "type": "residential", "weight": 0.62},
+    {"store_id": "PCC-FLN24", "name": "粉岭店",       "district": "北区",   "type": "residential", "weight": 0.58},
+    {"store_id": "PCC-KBW25", "name": "九龙湾店",     "district": "观塘区", "type": "office",     "weight": 0.96},
+    {"store_id": "PCC-KTW26", "name": "观塘店",       "district": "观塘区", "type": "office",     "weight": 0.86},
+    {"store_id": "PCC-WTS27", "name": "黄大仙店",     "district": "黄大仙区", "type": "residential", "weight": 0.70},
+    {"store_id": "PCC-LCK28", "name": "荔枝角店",     "district": "深水埗区", "type": "retail",    "weight": 0.84},
+    {"store_id": "PCC-HHM29", "name": "红磡店",       "district": "九龙城区", "type": "campus",   "weight": 0.76},
+    {"store_id": "PCC-JDN30", "name": "佐敦店",       "district": "油尖旺", "type": "tourist",   "weight": 1.00},
 ]
 STORE_BY_ID = {s["store_id"]: s for s in STORES}
+
+# 非会员散客客流基准（人次/日），参考香港区域型咖啡店公开报道：
+# T97 中环店约 100+ 杯/日、日营业额约 HK$4,000–5,000；社区咖啡馆约 80–120 客/日、客单约 HK$45。
+# 按门店类型给出不同基准，再乘门店权重与季节/周末因子；仅用于演示，不代表真实品牌经营数据。
+WALKIN_BASE = {
+    "office": 26, "mall": 38, "tourist": 32,
+    "retail": 28, "residential": 18, "campus": 22,
+}
+BENCHMARKS = [
+    {
+        "title": "T97 香港中环店：每天约 100+ 杯咖啡，客单约 HK$30，日营业额约 HK$4,000–5,000",
+        "source": "第一财经商业数据中心 CBNData / 电商在线",
+        "url": "https://m.cbndata.com/information/292099",
+    },
+    {
+        "title": "香港社区咖啡馆：日均客流约 80–120 人，客单价约 HK$45，月营收约 HK$108,000–162,000",
+        "source": "大数跨境行业访谈",
+        "url": "https://m.10100.com/article/54164702",
+    },
+    {
+        "title": "香港咖啡店盈亏平衡：日销约 200–400 杯（视定价与租金而定）",
+        "source": "36氪 / 联商网（库迪香港首店测算）",
+        "url": "https://m.36kr.com/p/2500926493468932",
+    },
+]
 
 # ----------------------------------------------------------------------
 # 会员原型：编码可辩护的行为假设
@@ -210,8 +253,9 @@ def main():
         "seed": SEED,
         "reference_date": TODAY.isoformat(),
         "coverage": f"{START.isoformat()} ~ {TODAY.isoformat()} (12 个月)",
-        "scale": "5,000 名会员 / 目标 ≥ 50,000 笔交易",
+        "scale": "10,000 名会员 / 30 家门店 / 目标 ≥ 500,000 笔交易（12 个月）",
         "note": "全部为合成数据，不含任何真实 Pacific Coffee 会员资料。",
+        "benchmarks": BENCHMARKS,
         "assumptions": [
             "会员行为由 6 种原型驱动，频次/客单/时段/偏好商品/流失风险相互一致，而非独立随机数。",
             "交易时段叠加早高峰(8-10)、午市(13)、下午茶(15-18) 三个非均匀峰值；周末整体后移约 1.8 小时。",
@@ -220,6 +264,7 @@ def main():
             "生日月份按香港出生人口分布加权，非均匀。",
             "电话为 8 位模拟号码，非真实号码段；生日仅保留月日。",
             "同意(consent)按渠道分别生成，直銷同意率约 71%，与 PCC 现有会员结构无关联，仅为测试假设。",
+            "日销售额 = 会员交易 + 按门店类型模拟的非会员散客客流；散客流基准参考香港咖啡店公开报道，并非真实品牌数据。",
             "这些是测试假设，不能视为 PCC 真实客流规律；接入授权样本前须重新校准。",
         ],
         "archetype_distribution": {},
@@ -227,9 +272,9 @@ def main():
     }
 
     # ---------------- 会员 ----------------
-    # 5,000 名会员 × 约 20 笔/年 ≈ 10 万笔交易，满足 PRD「≥5,000 会员 / ≥50,000 交易」
-    # 的规模要求，同时保持浏览器可加载的体量。
-    n_customers = 5000
+    # 10,000 名会员 × 约 60 笔/年 ≈ 60 万笔交易：30 家门店每店日均有足够样本，
+    # 同时保持浏览器可加载的体量（明细仅保留近 14 天）。
+    n_customers = 10000
     arch_names = list(ARCHETYPES.keys())
     arch_share = np.array([ARCHETYPES[a]["share"] for a in arch_names], dtype=float)
     arch_share = arch_share / arch_share.sum()
@@ -436,7 +481,7 @@ def main():
     # 前端只需「近期明细 + 全量聚合」。为保持浏览器可加载体量，
     # 全量交易压缩为按会员/按门店/按日的聚合视图，明细仅保留近 60 天
     # （发券、回流券、看板趋势都在该窗口内），并在 assumptions 中声明。
-    DETAIL_DAYS = 21
+    DETAIL_DAYS = 14
     detail_cut = (TODAY - timedelta(days=DETAIL_DAYS)).isoformat()
 
     recent_tx = [t for t in transactions if t["timestamp"][:10] >= detail_cut]
@@ -465,6 +510,34 @@ def main():
         a["txns"] += 1
         a["amount"] = round(a["amount"] + t["amount"], 1)
         a["cups"] += t["cups"]
+    daily_agg = sorted(daily.values(), key=lambda x: (x["date"], x["store_id"]))
+
+    # 非会员散客客流：补齐「真实日营业额」量级，避免日销售只剩会员交易。
+    # 独立固定种子，保证整份数据可复现；周末、假期与季节沿用同一组因子。
+    wrng = random.Random(SEED + 17)
+    for one_day in (START + timedelta(days=i) for i in range((TODAY - START).days + 1)):
+        wd_factor = 1.16 if one_day.weekday() >= 5 else (1.06 if one_day.weekday() == 4 else 1.0)
+        for store in STORES:
+            base = WALKIN_BASE[store["type"]] * store["weight"] * seasonal_multiplier(one_day) * wd_factor
+            n = max(0, int(round(wrng.gauss(base, max(1.0, base * 0.18)))))
+            if not n:
+                continue
+            ticket = wrng.uniform(42, 68) * (1.08 if store["type"] == "tourist" else 1.0)
+            amount = round(n * ticket, 1)
+            cups = int(round(n * wrng.uniform(0.9, 1.2)))
+            key = (one_day.isoformat(), store["store_id"])
+            a = daily.get(key)
+            if a is None:
+                a = {"date": key[0], "store_id": key[1], "txns": 0, "amount": 0.0, "cups": 0,
+                     "member_txns": 0, "member_amount": 0.0, "walkin_txns": 0, "walkin_amount": 0.0}
+                daily[key] = a
+            a["member_txns"] = a["txns"]
+            a["member_amount"] = a["amount"]
+            a["walkin_txns"] = n
+            a["walkin_amount"] = amount
+            a["txns"] += n
+            a["amount"] = round(a["amount"] + amount, 1)
+            a["cups"] += cups
     daily_agg = sorted(daily.values(), key=lambda x: (x["date"], x["store_id"]))
 
     def dump(name, obj):

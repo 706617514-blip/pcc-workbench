@@ -18,14 +18,17 @@
   --rose: #F4D6D3;
   --sand: #F0D9C8;
 
-  --ink: #2D120D;
-  --ink-2: #4A2A22;
-  --ink-3: #7A5C52;
-  --ink-4: #A0877B;
-  --line: #E8DAD2;
-  --line-2: #F2E9E3;
-  --bg: #F4E8DE;
-  --card: #FFFCF6;
+  --ink: #3B1E17;
+  --ink-2: #5C3A30;
+  --ink-3: #87695D;
+  --ink-4: #AC9083;
+  --line: #E7D8CC;
+  --line-2: #F1E7DE;
+  --bg: #F3E7D9;
+  --card: #FFFCF7;
+
+  --bean: #3B1E17;
+  --display: "Avenir Next", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 
   --green: #2E6B53;
   --green-tint: #E3F0E9;
@@ -35,9 +38,9 @@
 
   --radius: 12px;
   --radius-lg: 20px;
-  --shadow: 0 2px 8px rgba(45, 18, 13, .05), 0 12px 28px rgba(45, 18, 13, .045);
-  --shadow-md: 0 10px 30px rgba(45, 18, 13, .10);
-  --shadow-lg: 0 20px 60px rgba(45, 18, 13, .20);
+  --shadow: 0 2px 8px rgba(59, 30, 23, .045), 0 14px 30px rgba(59, 30, 23, .065);
+  --shadow-md: 0 10px 30px rgba(59, 30, 23, .10);
+  --shadow-lg: 0 20px 60px rgba(59, 30, 23, .20);
 
   --sidebar-w: 244px;
   --header-h: 76px;
@@ -53,8 +56,9 @@ html, body {
   font-family: var(--font);
   color: var(--ink);
   background:
-    radial-gradient(1200px 520px at 92% -10%, rgba(255, 248, 202, .7), transparent 60%),
-    radial-gradient(900px 480px at 0% 100%, rgba(205, 227, 232, .45), transparent 62%),
+    radial-gradient(1000px 460px at 98% -8%, rgba(255, 248, 202, .62), transparent 62%),
+    radial-gradient(820px 420px at -6% 104%, rgba(224, 199, 174, .55), transparent 64%),
+    repeating-linear-gradient(135deg, rgba(107, 11, 12, .012) 0 2px, transparent 2px 9px),
     var(--bg);
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
@@ -1931,4 +1935,98 @@ body { padding: 30px; }
   .coupon-grid { grid-template-columns: 1fr; }
   .page-title { font-size: 22px !important; }
   .rate-name small { display: none; }
+}
+
+/* ==========================================================================
+ * 咖啡馆参考图风格润色：暖米色底、深棕标题、酒红强调、轻玻璃卡片
+ * 仅调整观感，不改变任何布局层级 / 交互 / 权限口径
+ * ========================================================================== */
+.sidebar {
+  background: linear-gradient(180deg, rgba(255, 252, 246, .94), rgba(247, 235, 222, .88));
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+.brand-name, .topbar h1, .page-title, .dash-panel-title, .chart-title, .metric-value {
+  font-family: var(--display);
+}
+.brand-name { letter-spacing: .12em; }
+.topbar h1 { font-weight: 800; letter-spacing: .015em; color: var(--bean); }
+.page-title {
+  font-size: 32px; font-weight: 800; letter-spacing: -.02em;
+  color: var(--bean); text-transform: uppercase;
+}
+.page-desc { color: var(--ink-3); font-size: 14px; }
+
+.dash-panel, .chart-card, .filterbar {
+  background: linear-gradient(158deg, rgba(255, 253, 249, .96), rgba(255, 249, 241, .92));
+  border: 1px solid rgba(255, 255, 255, .94);
+  box-shadow: inset 0 0 0 1px rgba(107, 11, 12, .055), 0 12px 30px rgba(59, 30, 23, .075);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+.dash-panel-title, .chart-title {
+  font-size: 15px; font-weight: 800; letter-spacing: .055em;
+  text-transform: uppercase; color: var(--bean);
+}
+.dash-panel-sub { color: var(--ink-4); }
+
+/* KPI：参考图的浅米卡片 + 圆形酒红图标 + 大号深棕数字 */
+.metric, .metric.tone-lemon, .metric.tone-blue, .metric.tone-rose, .metric.tone-sand {
+  min-height: 148px;
+  background: linear-gradient(155deg, #FFFDF9 0%, #F8EFE4 100%);
+  border: 1px solid rgba(255, 255, 255, .96);
+  box-shadow: inset 0 0 0 1px rgba(107, 11, 12, .05), 0 10px 24px rgba(59, 30, 23, .07);
+}
+.metric::after {
+  width: 150px; height: 150px; right: -62px; bottom: -74px;
+  background: radial-gradient(circle, rgba(184, 137, 59, .13), transparent 68%);
+}
+.metric-icon {
+  position: static; width: 32px; height: 32px; margin-bottom: 10px;
+  border-radius: 50%; background: rgba(107, 11, 12, .085); color: var(--pcc-red);
+  box-shadow: inset 0 0 0 1px rgba(107, 11, 12, .08);
+}
+.metric-label {
+  font-size: 11px; font-weight: 750; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--pcc-red); margin-bottom: 6px;
+}
+.metric-value { font-size: 36px; font-weight: 800; color: var(--bean); }
+.metric-foot { font-size: 11px; color: var(--ink-3); }
+.kpi-delta, .kpi-delta.good, .kpi-delta.bad {
+  background: transparent; color: #B3261E; padding: 0; font-weight: 750;
+}
+
+/* 趋势图参考图的 Avg / Peak / Low 小胶囊 */
+.trend-insight { display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 24px 10px; }
+.trend-insight span {
+  padding: 4px 11px; border-radius: 999px;
+  border: 1px solid rgba(107, 11, 12, .08);
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 2px 8px rgba(59, 30, 23, .06);
+  font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
+}
+.trend-insight b { color: var(--pcc-red); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* 券种表现：参考图的彩色圆环 + 酒红横条 */
+.rate-fill { height: 9px; border-radius: 999px; background: linear-gradient(90deg, #8E1B1C, var(--pcc-red)); }
+.coupon-rate .rate-name { position: relative; padding-left: 42px; min-height: 34px; justify-content: center; }
+.coupon-rate .rate-name::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 50%;
+  background: conic-gradient(
+    var(--pcc-red) 0 var(--donut-deg, 120deg),
+    var(--amber) var(--donut-deg, 120deg) calc(var(--donut-deg, 120deg) + 70deg),
+    var(--botticelli) calc(var(--donut-deg, 120deg) + 70deg) calc(var(--donut-deg, 120deg) + 115deg),
+    #EFE3D7 0);
+  -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%);
+  mask: radial-gradient(circle, transparent 54%, #000 56%);
+  filter: drop-shadow(0 2px 4px rgba(59, 30, 23, .14));
+}
+
+/* 热力格：比参考图更亮的玻璃高光，数字保持深棕 */
+.heat-cell { border-color: rgba(255, 255, 255, .9); }
+
+@media (max-width: 760px) {
+  .page-title { font-size: 26px !important; }
+  .trend-insight { padding: 2px 14px 10px; }
 }

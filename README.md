@@ -22,7 +22,7 @@ python3 -m http.server 8777
 # 浏览器打开 http://127.0.0.1:8777/app/index.html
 ```
 
-首次加载会读取约 16 MB 合成数据，请稍候数秒。
+首次加载会读取约 33 MB 合成数据（30 家门店 / 10,000 会员 / 61 万笔年度交易），请稍候数秒。
 
 ### 演示账号（右上角可切换）
 
@@ -41,7 +41,7 @@ python3 -m http.server 8777
 pcc-workbench/
 ├── app/
 │   ├── index.html          入口
-│   ├── css/app.css         设计系统（PCC 红白配色，对齐 PRD 图 2–图 21 线框）
+│   ├── css/app.css         设计系统（暖米色 + 深棕标题 + 酒红强调的玻璃卡片风格）
 │   └── js/
 │       ├── const.js        常量、三语文案键（简中／繁中／英文）
 │       ├── engine.js       ★ 核心业务引擎（券规则、资格检查、幂等、指标、守门）
@@ -50,8 +50,29 @@ pcc-workbench/
 │       ├── app.js          页面渲染与路由
 │       └── acceptance.js   PRD 表 14「核心验收场景」自动化验收脚本
 ├── app/data/               合成数据 + 假设清单（随应用一起分发）
-└── scripts/generate_data.py 数据生成器（固定随机种子，可复现）
+└── scripts/
+    ├── generate_data.py        数据生成器（固定随机种子，可复现，30 家门店 / 10,000 会员）
+    ├── compact_store_stats.py  会员×门店统计转列式压缩
+    ├── export_runtime_data.mjs 导出券实例聚合与核销明细（供 Excel 使用）
+    └── build_excel.py          生成 docs/PCC_模拟数据演示.xlsx
+
+docs/PCC_模拟数据演示.xlsx      PPT 用工作台账（8 个工作表 + 4 张图表）
 ```
+
+### PPT 用 Excel 工作簿
+
+`docs/PCC_模拟数据演示.xlsx` 包含：使用说明与公开参考基准、30 家门店总览（含日均销售额图表）、
+10,950 行门店日销售、月度趋势、券种/活动表现、30 日发券趋势、核销明细、会员原型分布。
+重新生成：
+
+```bash
+python3 scripts/generate_data.py && python3 scripts/compact_store_stats.py
+node scripts/export_runtime_data.mjs && python3 scripts/build_excel.py
+```
+
+Excel 生成依赖 `openpyxl`；数据生成依赖 `numpy`。公开基准参考香港咖啡店报道
+（T97 中环店日营业额约 HK$4,000–5,000；社区店日均 80–120 客、客单 HK$45），
+完整来源链接写在工作簿「使用说明」页与 `app/data/assumptions.json`。
 
 ---
 

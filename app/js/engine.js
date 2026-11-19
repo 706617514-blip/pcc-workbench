@@ -1307,6 +1307,22 @@
         store_id: 'PCC-TKO03', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-12T09:00' },
       { name: '中环早高峰常客回馈', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
         store_id: 'PCC-CEN01', status: 'approved', segment: '曾在本店消费的会员', created_at: '2026-10-15T08:30' },
+      { name: '尖沙咀游客下午茶', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-TST04', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-08-20T09:00' },
+      { name: '铜锣湾周末轻食', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-CWB07', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-08-22T09:00' },
+      { name: '旺角学生加乘', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-MK05', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-01T09:00' },
+      { name: '沙田商场家庭日', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-STN09', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-05T09:00' },
+      { name: '屯门社区晨间', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-TMN22', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-08T09:00' },
+      { name: '金钟商务午市', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-ADM13', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-10T09:00' },
+      { name: '佐敦夜归人优惠', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-JDN30', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-15T09:00' },
+      { name: '将军澳亲子时光', coupon_type: 'store_local', mode: 'manual', store_scope: 'store',
+        store_id: 'PCC-TSK18', status: 'running', segment: '曾在本店消费的会员', created_at: '2026-09-18T09:00' },
       { name: '学生月度优惠', coupon_type: 'student', mode: 'manual', store_scope: 'all_hk', status: 'running',
         segment: '学生资格有效的会员', created_at: '2026-07-01T09:00' },
     ];
@@ -1356,14 +1372,19 @@
     const R = mulberry32(20261029);
     const days = 365;              // 覆盖 12 个月，供看板按日期范围查询
     const running = DB.campaigns.filter((c) => c.status === 'running' || c.status === 'approved');
+    // 30 家门店 / 10,000 会员需要更大的样本量；按会员规模线性放大每日发券量。
+    const scaleFactor = Math.max(1, Math.min(2.4, DB.customers.length / 5000));
+    // 按「会员 + 券种」建立去重索引，避免历史回填在 5 万张券上做 O(n²) 全表扫描。
+    const dedupIdx = new Map();
 
     for (let dOff = days; dOff >= 0; dOff--) {
       const day = addDays(C.DATA_TODAY, -dOff);
       running.forEach((camp) => {
         const ct = COUPON_TYPES[camp.coupon_type];
         // 每日应发规模，按券种特性；早期活动逐步起量（贴合持续运行规则的成长曲线）
-        let scale = { newbie: 4, birthday: 2, winback: 26, halloween: 6, student: 5, store_local: 3 }[camp.coupon_type] || 4;
-        if (camp.store_scope === 'store') scale = 2;
+        let scale = ({ newbie: 12, birthday: 8, winback: 60, halloween: 18,
+                       student: 12, store_local: 10 }[camp.coupon_type] || 6) * scaleFactor;
+        if (camp.store_scope === 'store') scale = 10 * scaleFactor;
         const ramp = 0.45 + 0.55 * (1 - dOff / days);          // 越近的日期发得越多
         const seasonal = 1 + 0.16 * Math.sin((dOff / 365) * Math.PI * 2);
         const n = Math.max(0, Math.round(scale * ramp * seasonal * (0.6 + R() * 0.9)));
@@ -1382,7 +1403,7 @@
           const issuedAt = day + 'T09:00';
           // 按券种规则去重：新人券一次、生日券每年一次、学生券每月一次、
           // 回流券同轮一次、主题与门店券每活动一次 —— 与 checkDuplicate 保持一致
-          if (!seedDedupOk(camp, cid, day)) continue;
+          if (!seedDedupOk(camp, cid, day, dedupIdx)) continue;
           let validFrom = day, validUntil = '';
           if (ct.validity_mode === 'fixed_from_issue') validUntil = addDays(day, ct.validity_days);
           else if (ct.validity_mode === 'fixed_window') { validFrom = ct.window[0]; validUntil = ct.window[1]; }
@@ -1431,6 +1452,12 @@
             round: 'r1', store_scope: camp.store_scope, store_id: camp.store_id || null,
             notify_status: 'sent', notify_channel: camp.channel, requires_claim: !!ct.requires_claim,
           });
+          const dk = cid + '|' + camp.coupon_type;
+          if (!dedupIdx.has(dk)) dedupIdx.set(dk, []);
+          dedupIdx.get(dk).push({
+            customer_id: cid, coupon_type: camp.coupon_type, campaign_id: camp.campaign_id,
+            issued_at: issuedAt, status,
+          });
           if (status === 'used') {
             const order = Math.round((45 + R() * 130) * 10) / 10;
             const usePoints = ct.stack_points && R() < 0.3;
@@ -1455,8 +1482,8 @@
    * 新人券终身一次；生日券每年一次；学生券每月一次；回流券同一轮一次；
    * 万圣／门店券每活动一次。
    */
-  function seedDedupOk(camp, cid, day) {
-    const mine = DB.couponInstance.filter((x) => x.customer_id === cid && x.coupon_type === camp.coupon_type);
+  function seedDedupOk(camp, cid, day, idx) {
+    const mine = (idx && idx.get(cid + '|' + camp.coupon_type)) || [];
     switch (camp.coupon_type) {
       case 'newbie':
         return mine.length === 0;                                    // 每位会员一次
@@ -1499,14 +1526,14 @@
         if (c.birthday_mmdd.slice(0, 2) !== C.DATA_TODAY.slice(5, 7)) continue;
       }
       if (camp.coupon_type === 'newbie') {
+        // 历史回填：新人券在会员各自注册当日发放（每位一次），并非只看「今天」的新人。
         if (!c.signup_date) continue;
-        // 新人券仅覆盖注册 30 天内的会员（PRD 表 6）
-        if (dayDiff(C.DATA_TODAY, c.signup_date) > 30) continue;
       }
       if (camp.coupon_type === 'winback') {
-        // 回流受众：最近消费距今 ≥ 30 天，或已完全沉默
+        // 历史回填用较宽口径近似「连续 30 天未消费」，使 12 个月回填有足够样本；
+        // 实时发券仍由 checkEligibility 按严格 30 天规则守门。
         const d = c.last_visit_date ? dayDiff(C.DATA_TODAY, c.last_visit_date) : 999;
-        if (d < 30) continue;
+        if (d < 10) continue;
       }
       pool.push(c.customer_id);
     }
@@ -1524,7 +1551,16 @@
     return camp._pool[Math.floor(R() * camp._pool.length)];
   }
 
-  function weightedStoreForSeed(R) { return DB.stores[Math.floor(R() * DB.stores.length)].store_id; }
+  /** 全港券的核销门店按门店权重抽样，使 30 家门店的排名有区分度。 */
+  function weightedStoreForSeed(R) {
+    const total = DB.stores.reduce((s, x) => s + (x.weight || 1), 0);
+    let r = R() * total;
+    for (const s of DB.stores) {
+      r -= (s.weight || 1);
+      if (r <= 0) return s.store_id;
+    }
+    return DB.stores[DB.stores.length - 1].store_id;
+  }
 
   /** 种子：发送记录（含 1 条失败、1 条待处理），对应 PRD 图 11 / 图 13 */
   function seedSendRecords() {
