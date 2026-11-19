@@ -2255,20 +2255,34 @@
       </div>`;
 
     const foot = el('div', '');
-    if (!store && c.mode === 'auto' && (c.status === 'running' || c.status === 'stopped')) {
-      const b = el('button', 'btn btn-ghost', esc(c.status === 'running' ? t('mg.stop') : t('mg.start')));
+    // 管理层（总部）可停止运行中/已批准的活动，也可重新启用已停止的活动；门店账号不显示
+    const canStop = !store && (c.status === 'running' || c.status === 'approved');
+    const canStart = !store && c.status === 'stopped';
+    if (canStop || canStart) {
+      const toStop = canStop;
+      const b = el('button', toStop ? 'btn btn-primary' : 'btn btn-ghost',
+        esc(t(toStop ? 'mg.stop' : 'mg.start')));
       b.type = 'button';
       b.addEventListener('click', async () => {
-        const next = c.status === 'running' ? 'stopped' : 'running';
+        const next = toStop ? 'stopped' : 'running';
         const r = await confirm({
-          title: c.status === 'running' ? '停用自动规则' : '启用自动规则',
-          message: `确认将活动「${c.name}」${c.status === 'running' ? '停用' : '启用'}？`,
-          detail: '停用后系统不再按该规则发券；已发出的券不受影响。',
-          okText: '确认', reasonLabel: '操作原因', reasonPlaceholder: '填写操作原因（写入审计记录）',
+          title: t(toStop ? 'mg.stop' : 'mg.start'),
+          message: toStop
+            ? `确认停止活动「${c.name}」？`
+            : `确认重新启用活动「${c.name}」？`,
+          detail: toStop
+            ? '停止后系统不再按该活动发券；已发出的券仍可领取与核销，不受影响。'
+            : '启用后系统按该活动规则继续发券。',
+          okText: toStop ? '确认停止' : '确认启用',
+          reasonLabel: '操作原因',
+          reasonPlaceholder: '填写停止/启用原因（写入审计记录）',
+          reasonRequired: true,
         });
         if (!r) return;
-        E.setCampaignStatus(c.campaign_id, next, acc.display_name || acc.name, r.reason);
-        toast(`活动已${next === 'running' ? '启用' : '停用'}`, 'ok');
+        const res = E.setCampaignStatus(c.campaign_id, next, acc.display_name || acc.name, r.reason, { account: acc });
+        if (!res.ok) { toast(res.error, 'err', 4200); return; }
+        mo.close();
+        toast(toStop ? '活动已停止，不再发券' : '活动已重新启用', 'ok', 3200);
         render();
       });
       foot.appendChild(b);
@@ -2499,7 +2513,7 @@
       // 批准即进入总部统一发放：手批活动由「已批准」转为运行中，
       // 门店审批进度与本店适用列表因此能立即反映结果（状态仍由引擎写入）。
       if (approve && r.campaign && r.campaign.status === 'approved') {
-        E.setCampaignStatus(c.campaign_id, 'running', who, '批准后由总部统一发放');
+        E.setCampaignStatus(c.campaign_id, 'running', who, '批准后由总部统一发放', { account: acc });
         E.audit(who, 'distribute_campaign', 'campaign', c.campaign_id,
           `批准「${c.name}」后由总部统一发放，活动进入运行中`, cmt || '审批后统一发放');
       }

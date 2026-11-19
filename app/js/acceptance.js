@@ -458,6 +458,48 @@
         `含有效期与適用門店=${hasTerms}；含退訂=${hasUnsub}；无绝对化用语=${noBanned}`);
     } catch (e) { rec(19, 'AI 券文案草稿生成', false, 'ERR ' + e.message); }
 
+    /* ---- 20. 停止活动（仅管理层可操作） ---- */
+    try {
+      const target = DB.campaigns.find((c) => c.status === 'running');
+      const pending = DB.campaigns.find((c) => c.status === 'pending');
+      const before = target && target.status;
+
+      // ① 总部可以停止运行中的活动，且写入审计
+      const r1 = target
+        ? E.setCampaignStatus(target.campaign_id, 'stopped', '总部营销人员', '验收：停止活动', { account: hq })
+        : null;
+      const auditHit = !!target && DB.auditLog.some((a) => a.object_id === target.campaign_id
+        && a.action === 'stop_campaign' && /验收：停止活动/.test(a.reason || ''));
+
+      // ② 门店账号越权被拒绝（服务端强制）
+      const r2 = target
+        ? E.setCampaignStatus(target.campaign_id, 'running', '太古城店员', '越权尝试', { account: store })
+        : null;
+
+      // ③ 不写原因被拒绝（审计要求）
+      const r3 = target
+        ? E.setCampaignStatus(target.campaign_id, 'running', '总部营销人员', '  ', { account: hq })
+        : null;
+
+      // ④ 待审批的活动不可直接启停
+      const r4 = pending
+        ? E.setCampaignStatus(pending.campaign_id, 'running', '总部营销人员', '验收：状态机', { account: hq })
+        : null;
+
+      // 还原，避免影响其它场景
+      if (target && before) target.status = before;
+
+      const ok = !!(r1 && r1.ok && target && target.status === 'running' && auditHit
+        && r2 && r2.code === 'FORBIDDEN_STORE'
+        && r3 && r3.code === 'REASON_REQUIRED'
+        && (!pending || (r4 && r4.code === 'INVALID_STATE')));
+      rec(20, '停止活动（仅管理层）',
+        ok,
+        `总部停止成功=${!!(r1 && r1.ok)}；写审计=${auditHit}；` +
+        `门店越权被拒=${r2 ? r2.code : '无样本'}；空原因被拒=${r3 ? r3.code : '无样本'}；` +
+        `待审批不可启停=${r4 ? r4.code : '无样本'}`);
+    } catch (e) { rec(20, '停止活动（仅管理层）', false, 'ERR ' + e.message); }
+
     const pass = results.filter((r) => r.pass).length;    const summary = {
       total: results.length, pass, fail: results.length - pass,
       results: results.map((r) => ({ id: r.id, name: r.name, pass: r.pass, detail: r.detail })),

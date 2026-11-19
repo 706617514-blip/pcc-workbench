@@ -293,8 +293,8 @@
       'mg.recent': '最近发放',
       'mg.sheets': '张',
       'mg.detail': '查看详情',
-      'mg.stop': '停用规则',
-      'mg.start': '启用规则',
+      'mg.stop': '停止活动',
+      'mg.start': '启用活动',
       'mg.none': '该分类下暂无活动。',
 
       'ap.title': '审批中心',
@@ -682,7 +682,7 @@
       'mg.title': '活動管理', 'mg.desc': '統一查看自動規則、限定主題及門店活動',
       'mg.tab.all': '全部活動', 'mg.tab.auto': '自動規則', 'mg.tab.theme': '限定主題', 'mg.tab.store': '門店活動',
       'mg.type_filter': '類型篩選', 'mg.scope': '適用範圍', 'mg.recent': '最近發放', 'mg.sheets': '張',
-      'mg.detail': '查看詳情', 'mg.stop': '停用規則', 'mg.start': '啟用規則', 'mg.none': '該分類下暫無活動。',
+      'mg.detail': '查看詳情', 'mg.stop': '停止活動', 'mg.start': '啟用活動', 'mg.none': '該分類下暫無活動。',
       'ap.title': '審批中心', 'ap.desc': '查看待辦與過往審批記錄，點擊活動查看審批詳情',
       'ap.tab.all': '全部', 'ap.tab.pending': '待審批', 'ap.tab.approved': '已批准', 'ap.tab.rejected': '已駁回',
       'ap.date': '審批日期', 'ap.all_dates': '全部日期', 'ap.filter': '篩選',
@@ -986,7 +986,7 @@
       'mg.title': 'Campaign management', 'mg.desc': 'View automatic rules, theme campaigns and store campaigns together',
       'mg.tab.all': 'All campaigns', 'mg.tab.auto': 'Automatic rules', 'mg.tab.theme': 'Theme', 'mg.tab.store': 'Store campaigns',
       'mg.type_filter': 'Type filter', 'mg.scope': 'Scope', 'mg.recent': 'Recently issued', 'mg.sheets': 'coupons',
-      'mg.detail': 'View details', 'mg.stop': 'Stop rule', 'mg.start': 'Enable rule', 'mg.none': 'No campaigns in this category.',
+      'mg.detail': 'View details', 'mg.stop': 'Stop campaign', 'mg.start': 'Enable campaign', 'mg.none': 'No campaigns in this category.',
 
       'ap.title': 'Approval centre', 'ap.desc': 'Pending and past approval records; click a campaign for details',
       'ap.tab.all': 'All', 'ap.tab.pending': 'Pending', 'ap.tab.approved': 'Approved', 'ap.tab.rejected': 'Rejected',

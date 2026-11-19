@@ -595,8 +595,15 @@
       foot.querySelector('[data-x="cancel"]').addEventListener('click', () => { mo.close(); resolve(null); });
       foot.querySelector('[data-x="ok"]').addEventListener('click', () => {
         const r = body.querySelector('#cfm-reason');
+        const val = r ? r.value.trim() : '';
+        if (opts.reasonRequired && !val) {
+          // 审计要求：启停类操作必须写明原因，不允许空提交
+          if (r) r.focus();
+          toast('请填写操作原因（将写入审计记录）', 'warn', 3000);
+          return;
+        }
         mo.close();
-        resolve({ ok: true, reason: r ? r.value.trim() : '' });
+        resolve({ ok: true, reason: val });
       });
     });
   }

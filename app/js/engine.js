@@ -1274,12 +1274,39 @@
     return { ok: true, campaign: camp };
   }
 
-  function setCampaignStatus(campaignId, status, actor, reason) {
+  /**
+   * 启停活动（PRD 表 10 权限矩阵）。
+   * 服务端强制，fail-closed：
+   *   · 门店账号（L3）无启停权限，直接拒绝；
+   *   · 草稿 / 待审批 / 已驳回不可启停；
+   *   · 必须写明操作原因，写入审计。
+   * opts.account 为当前账号；缺省时按「总部调用」处理（内部流程调用）。
+   */
+  function setCampaignStatus(campaignId, status, actor, reason, opts) {
     const camp = DB.campaigns.find((c) => c.campaign_id === campaignId);
-    if (!camp) return { ok: false, error: '活动不存在' };
+    if (!camp) return { ok: false, code: 'NOT_FOUND', error: '活动不存在。' };
+
+    const account = opts && opts.account;
+    if (account && account.scope_type === 'store') {
+      return { ok: false, code: 'FORBIDDEN_STORE', error: '门店账号无启停活动权限，请提交总部处理。' };
+    }
+
+    const from = camp.status;
+    const allowed = { running: ['stopped'], stopped: ['running'], approved: ['running', 'stopped'] };
+    if (!allowed[from] || allowed[from].indexOf(status) < 0) {
+      return {
+        ok: false, code: 'INVALID_STATE',
+        error: `活动当前为「${STATUS.campaign[from]}」，不可直接改为「${STATUS.campaign[status]}」。`,
+      };
+    }
+    if (!reason || !String(reason).trim()) {
+      return { ok: false, code: 'REASON_REQUIRED', error: '启停活动须填写操作原因。' };
+    }
+
     camp.status = status;
-    audit(actor, 'toggle_campaign', 'campaigns', campaignId, `将活动「${camp.name}」状态设为「${STATUS.campaign[status]}」`, reason || '');
-    return { ok: true, campaign: camp };
+    audit(actor, status === 'stopped' ? 'stop_campaign' : 'start_campaign', 'campaigns', campaignId,
+      `将活动「${camp.name}」由「${STATUS.campaign[from]}」改为「${STATUS.campaign[status]}」`, reason);
+    return { ok: true, campaign: camp, from, to: status };
   }
 
   /* ================================================================
