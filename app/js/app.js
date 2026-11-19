@@ -74,7 +74,8 @@
   /* ------------------------------------------------------------ 状态 */
   const S = {
     page: 'overview',
-    accountKey: 'hq.marketing',
+    loggedIn: false,
+    accountKey: null,
     locale: 'zh-Hans',
     // 看板筛选（PRD 5.1）
     ov: {
@@ -88,6 +89,7 @@
       draftPrefill: null,      // AI 回填的草稿
     },
     manageTab: 'all',
+    storeManageTab: 'submitted',
     approvalTab: 'all', approvalDate: '',
     records: { mode: '', campaignId: '', result: '', range: 'week', sortBy: 'time', sortDir: -1 },
     settings: { denied: false },
@@ -111,12 +113,45 @@
    *   · 浏览器前进 / 后退可用
    *   · 可以直接把某个页面的链接发给别人（如 #/records）
    * --------------------------------------------------------------*/
-  const PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings'];
+  const PAGES = ['overview', 'create', 'propose', 'manage', 'approval', 'progress', 'records', 'settings', 'store-info'];
+  const HQ_PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings'];
+  const STORE_PAGES = ['overview', 'propose', 'manage', 'progress', 'store-info'];
 
+  /** 只取 hash 的页面名，忽略 ?tab=... 子状态 */
   function pageFromHash() {
-    const m = /^#\/([a-z]+)/.exec(location.hash || '');
+    const m = /^#\/([a-z-]+)/.exec(location.hash || '');
     const p = m ? m[1] : 'overview';
     return PAGES.indexOf(p) >= 0 ? p : 'overview';
+  }
+
+  function tabFromHash() {
+    const m = /[?&]tab=([a-z-]+)/.exec(location.hash || '');
+    return m ? m[1] : '';
+  }
+
+  /** 权限矩阵：越权 hash 一律纠正到对应角色的页面，而不是回退到首页 */
+  function resolvePage(raw) {
+    const p = PAGES.indexOf(raw) >= 0 ? raw : 'overview';
+    if (isStore()) {
+      if (p === 'approval') return 'progress';
+      if (p === 'settings') return 'store-info';
+      if (p === 'create') return 'propose';
+      if (p === 'records') return 'overview';
+      return STORE_PAGES.indexOf(p) >= 0 ? p : 'overview';
+    }
+    if (p === 'propose') return 'create';
+    if (p === 'progress') return 'approval';
+    if (p === 'store-info') return 'settings';
+    return HQ_PAGES.indexOf(p) >= 0 ? p : 'overview';
+  }
+
+  const activeManageTab = () => isStore() ? S.storeManageTab : S.manageTab;
+
+  function applyHashTab(p) {
+    const tab = tabFromHash();
+    if (p !== 'manage' || !tab) return;
+    if (isStore() && ['submitted', 'applicable'].indexOf(tab) >= 0) S.storeManageTab = tab;
+    if (!isStore() && ['all', 'auto', 'theme', 'store'].indexOf(tab) >= 0) S.manageTab = tab;
   }
 
   /** 切页后回到顶部（内容在 App 窗口内部滚动） */
@@ -138,8 +173,17 @@
   }
 
   function onHashChange() {
-    const p = pageFromHash();
-    if (p === S.page) return;
+    if (!S.loggedIn) { renderLogin($('#boot')); return; }
+    const raw = pageFromHash();
+    const p = resolvePage(raw);
+    if (p !== raw) {
+      // 越权地址直接纠正 URL，避免前进/后退再次落到无权页面
+      history.replaceState(null, '', location.pathname + location.search + '#/' + p);
+    }
+    const beforePage = S.page;
+    const beforeTab = activeManageTab();
+    applyHashTab(p);
+    if (p === beforePage && activeManageTab() === beforeTab) return;
     if (p !== 'approval') S.approvalHighlight = null;
     S.page = p;
     render();
@@ -164,11 +208,104 @@
       return;
     }
     host.innerHTML = '';
-    S.page = pageFromHash();          // 支持 #/records 这类深链与刷新保持
+    const saved = sessionStorage.getItem('pcc.accountKey');
+    const valid = saved && E.ACCOUNTS.some((a) => a.account_id === saved);
+    if (valid) {
+      S.loggedIn = true;
+      S.accountKey = saved;
+      S.page = resolvePage(pageFromHash());
+      applyHashTab(S.page);
+      mountWorkbench();
+      render();
+    } else {
+      S.loggedIn = false;
+      S.accountKey = null;
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+      renderLogin(host);
+    }
+    window.addEventListener('hashchange', onHashChange);
+  }
+
+  function mountWorkbench() {
+    if ($('#root')) return;
+    const host = $('#boot');
+    host.innerHTML = '';
     host.appendChild(buildShell());
     initAIFloat();
-    render();
-    window.addEventListener('hashchange', onHashChange);
+  }
+
+  /* ------------------------------------------------------------ 登录页 */
+  function renderLogin(host) {
+    if (!host) return;
+    const groups = [
+      { key: 'login.hq', list: E.ACCOUNTS.filter((a) => a.scope_type !== 'store') },
+      { key: 'login.store', list: E.ACCOUNTS.filter((a) => a.scope_type === 'store') },
+    ];
+    const wrap = el('div', 'login-page');
+    wrap.innerHTML = `<div class="login-card">
+      <div class="login-brand">${global.UI.pccLogo(48)}</div>
+      <h1 class="login-title">${esc(t('login.title'))}</h1>
+      <p class="login-subtitle">${esc(t('login.subtitle'))}</p>
+      <div class="login-groups"></div>
+      <p class="login-hint">${esc(t('login.hint'))}</p>
+    </div>`;
+    const groupsBox = $('.login-groups', wrap);
+    groups.forEach((g) => {
+      const sec = el('div', 'login-group');
+      sec.innerHTML = `<div class="login-group-title">${esc(t(g.key))}</div><div class="login-accounts"></div>`;
+      const box = $('.login-accounts', sec);
+      g.list.forEach((a) => {
+        const store = a.scope_type === 'store';
+        const scope = store ? E.utils.storeLabel(a.scope_id) : t('login.scope.all');
+        const perm = store ? t('login.perm.store') : a.desc;
+        const card = el('button', 'login-account');
+        card.type = 'button';
+        card.dataset.account = a.account_id;
+        card.innerHTML = `<span class="login-avatar">${esc(a.badge)}</span>
+          <span class="login-account-main">
+            <b>${esc(a.display_name || a.name)}</b>
+            <span>${esc(scope)}</span>
+          </span>
+          <span class="login-perm">${esc(perm)}</span>`;
+        card.addEventListener('click', () => doLogin(a.account_id));
+        box.appendChild(card);
+      });
+      groupsBox.appendChild(sec);
+    });
+    host.innerHTML = '';
+    host.appendChild(wrap);
+  }
+
+  function doLogin(accountId) {
+    const acc = E.ACCOUNTS.find((a) => a.account_id === accountId);
+    if (!acc) return;
+    S.loggedIn = true;
+    S.accountKey = accountId;
+    sessionStorage.setItem('pcc.accountKey', accountId);
+    E.audit(acc.display_name || acc.name, 'login', 'staff_account', accountId,
+      `${acc.display_name || acc.name} 登录工作台（${isStore() ? E.utils.storeLabel(acc.scope_id) : '全港'}）`, '演示登录');
+    S.page = null;
+    mountWorkbench();
+    setHash('overview');
+    toast(t('login.enter') + ' · ' + (acc.display_name || acc.name), 'ok');
+  }
+
+  function doLogout() {
+    const acc = account();
+    if (S.loggedIn) {
+      E.audit(acc.display_name || acc.name, 'logout', 'staff_account', acc.account_id,
+        `${acc.display_name || acc.name} 退出工作台`, '演示登录');
+    }
+    S.loggedIn = false;
+    S.accountKey = null;
+    S.page = null;
+    S.ai.open = false;
+    sessionStorage.removeItem('pcc.accountKey');
+    const root = $('#root');
+    if (root) root.remove();
+    history.replaceState(null, '', location.pathname + location.search);
+    renderLogin($('#boot'));
+    toast(t('login.logout_audited'), 'ok');
   }
 
   /* ------------------------------------------------------------ 外壳 */
@@ -185,6 +322,7 @@
             </div>
             <nav class="topnav" id="nav"></nav>
             <div class="appbar-tools">
+              <span class="store-scope-chip" id="storeScopeChip" style="display:none"></span>
               <button class="ai-search" id="aiSearch" type="button">
                 <span class="ai-search-ico">${SVG.ai}</span>
                 <span class="ai-search-ph">${esc(t('ai.search.ph'))}</span>
@@ -248,7 +386,8 @@
       <div class="acc-section-label">切换身份</div>
       <div id="accountSwitch"></div>
       <div class="acc-divider"></div>
-      <button class="acc-action" id="accSettings">${DASH_ICONS.settings}<span>账号与权限设置</span><span class="acc-arrow">→</span></button>`;
+      <button class="acc-action" id="accSettings">${DASH_ICONS.settings}<span id="accSettingsLabel">${esc(t('nav.settings'))}</span><span class="acc-arrow">→</span></button>
+      <button class="acc-action" id="accLogout"><span class="acc-ico">↪</span><span>${esc(t('login.out'))}</span><span class="acc-arrow">→</span></button>`;
     accMenu.appendChild(accTrigger);
     accMenu.appendChild(accPanel);
     $('#accountMenu', root).appendChild(accMenu);
@@ -270,29 +409,33 @@
       value: S.accountKey,
       onChange: (v) => {
         S.accountKey = v;
+        sessionStorage.setItem('pcc.accountKey', v);
         S.create.applied = false; S.create.result = null;
         S.create.filters.storeScope = [];
+        S.manageTab = 'all'; S.storeManageTab = 'submitted';
         S.ov.couponTypes = []; S.ov.campaignIds = [];
         S.settings.denied = false;
         if (isStore()) { S.ov.storeFilter = account().scope_id; } else { S.ov.storeFilter = null; }
         E.audit(account().display_name || account().name, 'switch_account', 'staff_account', v,
-          `切换工作台账号至 ${v}`, '演示账号切换');
-        if (!account().can_manage_accounts && S.page === 'settings') {
-          setHash('overview');
-          toast('门店账号没有账号管理权限，已切换到数据大盘', 'warn', 4600);
-          return;
-        }
-        render();
+          `切换工作台账号至 ${v}`, '演示身份切换');
+        const next = resolvePage(S.page);
+        applyHashTab(next);
+        if (next !== S.page) { setHash(next); }
+        else render();
         toast(`已切换为${account().display_name || account().name} · ${isStore() ? E.utils.storeLabel(account().scope_id) : '全港范围'}`, 'ok');
       },
     });
     sel.style.width = '100%';
     $('#accountSwitch', root).appendChild(sel);
 
-    // 账号设置入口
+    // 账号设置入口（总部=账号与权限，门店=本店信息）
     $('#accSettings', root).addEventListener('click', () => {
       accMenu.classList.remove('open');
-      setHash('settings');
+      setHash(isStore() ? 'store-info' : 'settings');
+    });
+    $('#accLogout', root).addEventListener('click', () => {
+      accMenu.classList.remove('open');
+      doLogout();
     });
 
     return root;
@@ -301,13 +444,15 @@
   function pageTitleKey() {
     return {
       overview: isStore() ? 'ov.title.store' : 'ov.title',
-      create: 'cr.title', manage: 'mg.title', approval: 'ap.title',
-      records: 'sr.title', settings: 'st.title',
+      create: 'cr.title', propose: 'propose.title',
+      manage: 'mg.title', approval: 'ap.title', progress: 'progress.title',
+      records: 'sr.title', settings: 'st.title', 'store-info': 'storeinfo.title',
     }[S.page];
   }
 
   /* ------------------------------------------------------------ 渲染 */
   function render() {
+    if (!S.loggedIn || !$('#content')) return;
     const acc = account();
     // 顶部账号信息（头像 + 下拉）
     $('#uAvatar').textContent = acc.badge;
@@ -315,7 +460,14 @@
     $('#uName').textContent = acc.display_name || acc.name;
     $('#uNameLg').textContent = acc.display_name || acc.name;
     $('#uDesc').textContent = acc.scope_type === 'store'
-      ? E.utils.storeLabel(acc.scope_id) : t('perm.ops');
+      ? `${E.utils.storeLabel(acc.scope_id)} · ${t('login.perm.store')}` : t('perm.ops');
+    const scopeChip = $('#storeScopeChip');
+    if (scopeChip) {
+      scopeChip.style.display = isStore() ? '' : 'none';
+      scopeChip.textContent = `${E.utils.storeLabel(acc.scope_id)} · ${t('ov.fixed')}`;
+    }
+    const settingsLabel = $('#accSettingsLabel');
+    if (settingsLabel) settingsLabel.textContent = t(isStore() ? 'nav.settings.store' : 'nav.settings');
 
     // 语言标签
     const loc = C.LOCALES.find((l) => l.key === S.locale);
@@ -325,7 +477,12 @@
     // 导航（顶部横向）
     const nav = $('#nav');
     nav.innerHTML = '';
-    const items = [
+    const items = isStore() ? [
+      { k: 'overview', l: t('nav.overview.store') },
+      { k: 'propose', l: t('nav.create.store') },
+      { k: 'manage', l: t('nav.manage') },
+      { k: 'progress', l: t('nav.approval.store') },
+    ] : [
       { k: 'overview', l: t('nav.overview') },
       { k: 'create', l: t('nav.create') },
       { k: 'manage', l: t('nav.manage') },
@@ -344,8 +501,12 @@
     const content = $('#content');
     content.innerHTML = '';
     ({
-      overview: renderOverview, create: renderCreate, manage: renderManage,
-      approval: renderApproval, records: renderRecords, settings: renderSettings,
+      overview: renderOverview,
+      create: renderCreate, propose: renderCreate,
+      manage: renderManage,
+      approval: renderApproval, progress: renderProgress,
+      records: renderRecords,
+      settings: renderSettings, 'store-info': renderStoreInfo,
     }[S.page] || renderOverview)(content);
 
     renderAI();
@@ -496,7 +657,7 @@
         '总部与本店适用的运行中活动', null, DASH_ICONS.campaign, 'tone-rose'));
       const risk = metrics.anomalies.length;
       mg.appendChild(kpiCard(t('ov.metric.anomaly'), num(risk),
-        risk ? '需要从发送记录复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand'));
+        risk ? '需总部复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand'));
     } else {
       mg.appendChild(kpiCard(t('ov.metric.issued'), num(metrics.issued),
         `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`,
@@ -864,10 +1025,10 @@
 
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
-        <h2 class="page-title">${esc(t('cr.title'))}</h2>
-        <p class="page-desc">${esc(t(store ? 'cr.desc.store' : 'cr.desc'))}</p>
+        <h2 class="page-title">${esc(t(store ? 'propose.title' : 'cr.title'))}</h2>
+        <p class="page-desc">${esc(t(store ? 'propose.desc' : 'cr.desc'))}</p>
       </div>`;
-    const createBtn = el('button', 'btn btn-primary', esc(t('cr.create')));
+    const createBtn = el('button', 'btn btn-primary', esc(t(store ? 'dlg.submit' : 'cr.create')));
     createBtn.style.minWidth = '150px';
     createBtn.addEventListener('click', () => {
       if (!S.create.applied) { toast('请先应用筛选条件，确认目标人群', 'warn'); return; }
@@ -875,6 +1036,11 @@
     });
     head.appendChild(createBtn);
     host.appendChild(head);
+    if (store) {
+      const rule = el('div', 'notice', esc(t('rule.claim_redeem', { store: E.utils.storeLabel(myStore) })));
+      rule.style.marginBottom = '18px';
+      host.appendChild(rule);
+    }
 
     const wrap = el('div', '');
     wrap.style.display = 'grid';
@@ -893,7 +1059,7 @@
     //   门店账号：由账号权限锁定为本店，服务端强制，前端不可更改
     const fStore = el('div', 'field');
     fStore.style.marginBottom = '16px';
-    fStore.innerHTML = `<label>${esc(t('cr.store.scope'))}</label>`;
+    fStore.innerHTML = `<label>${esc(t(store ? 'dlg.scope.redeem' : 'cr.store.scope'))}</label>`;
     if (store) {
       const c = el('div', 'control locked');
       c.innerHTML = `<span class="ctrl-value">${esc(E.utils.storeLabel(myStore))}（${esc(t('ov.fixed'))}）</span>`;
@@ -1173,7 +1339,7 @@
           </select>
         </div>
         <div class="form-item full">
-          <label>${esc(t('dlg.scope'))}</label>
+          <label>${esc(t(store ? 'dlg.scope.redeem' : 'dlg.scope'))}</label>
           ${store
             ? `<div class="control locked"><span class="ctrl-value">${esc(E.utils.storeLabel(acc.scope_id))}（${esc(t('cr.fixed_by_perm'))}）</span></div>`
             : `<select class="input" id="dlgScope">
@@ -1209,6 +1375,7 @@
     const scopeStoreSel = $('#dlgScopeStore', body);
     const scopeHint = $('#dlgScopeHint', body);
     const pickedStoreIds = (S.create.filters.storeScope || []);
+    if (store) scopeHint.textContent = t('rule.claim_redeem', { store: E.utils.storeLabel(acc.scope_id) });
     if (scopeSel) {
       // 单店下拉：列出全部门店
       DB.stores.forEach((st) => {
@@ -1243,7 +1410,9 @@
       const ct = E.COUPON_TYPES[curCoupon];
       $('#dlgValidity', body).textContent = ct.validity_label;
       $('#dlgPer', body).textContent = `${ct.per_member_label} · ${ct.stack_label}`;
-      $('#dlgNotice', body).textContent = t(store ? 'dlg.approval_note.store' : 'dlg.approval_note') + ' ' + t('dlg.order_note');
+      $('#dlgNotice', body).textContent = store
+        ? `${t('dlg.approval_note.store')} ${t('rule.claim_redeem', { store: E.utils.storeLabel(acc.scope_id) })} ${t('dlg.order_note')}`
+        : `${t('dlg.approval_note')} ${t('dlg.order_note')}`;
       // 实时守门
       const draft = curDraft();
       const g = E.permissionGuard(draft, acc);
@@ -1268,7 +1437,7 @@
       return { store_scope: 'all_hk', store_id: null, store_ids: null };
     }
     function curDraft() {
-      return {
+      const d = {
         name: $('#dlgName', body).value.trim(),
         coupon_type: curCoupon,
         discount: parseFloat(discSel.value),
@@ -1281,8 +1450,10 @@
         audience_size: res.total,
         valid_from: $('#dlgFrom', body).value,
         valid_until: $('#dlgTo', body).value,
-        source: pre.source || 'manual',
+        source: pre.source || (store ? 'store_submit' : 'manual'),
       };
+      if (store) d.submit_note = t('dlg.source.store');
+      return d;
     }
     couponSel.addEventListener('change', () => {
       curCoupon = couponSel.value;
@@ -1300,7 +1471,7 @@
 
     const foot = el('div', '', `<button class="btn btn-ghost" data-x="cancel">${esc(t('dlg.cancel'))}</button>
       <button class="btn btn-primary" data-x="ok">${esc(t('dlg.submit'))}</button>`);
-    const mo = modal({ title: t('dlg.title'), subtitle: `${esc(t('dlg.audience'))}：${esc(audienceText)}`, body, footer: foot });
+    const mo = modal({ title: t(store ? 'propose.title' : 'dlg.title'), subtitle: `${esc(t('dlg.audience'))}：${esc(audienceText)}`, body, footer: foot });
     foot.querySelector('[data-x="cancel"]').addEventListener('click', () => {
       // PRD 5.2：弹窗关闭且未提交时保留筛选条件
       mo.close();
@@ -1322,11 +1493,14 @@
         return;
       }
       const camp = E.createCampaign(draft, acc, who);
+      const route = E.routeApproval(draft, acc);
       mo.close();
       S.create.draftPrefill = null;
-      toast(`活动「${camp.name}」已提交审批（${camp.campaign_id}）`, 'ok');
-      S.approvalHighlight = camp.campaign_id;
-      setHash('approval');
+      toast(store ? t('dlg.submit.store') : `活动「${camp.name}」已提交审批（${camp.campaign_id}）`, 'ok', store ? 5200 : 3200);
+      S.approvalHighlight = store ? null : camp.campaign_id;
+      E.audit(who, 'route_approval', 'campaign', camp.campaign_id,
+        `活动「${camp.name}」按权限路由至 ${route.target}（${route.approver}）`, '提交后审批路由');
+      setHash(store ? 'progress' : 'approval');
     });
   }
 
@@ -1348,10 +1522,69 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('mg.title'))}</h2>
-        <p class="page-desc">${esc(t('mg.desc'))}</p>
+        <p class="page-desc">${esc(store ? t('propose.desc') : t('mg.desc'))}</p>
       </div>`;
     host.appendChild(head);
 
+    /* ---------- 门店版：本店提报 / 本店适用 两个 Tab ---------- */
+    if (store) {
+      const tabs = el('div', 'tabs');
+      const defs = [
+        { k: 'submitted', l: t('manage.tab.submitted') },
+        { k: 'applicable', l: t('manage.tab.applicable') },
+      ];
+      defs.forEach((d) => {
+        const b = el('button', 'tab' + (S.storeManageTab === d.k ? ' active' : ''), esc(d.l));
+        b.type = 'button';
+        b.addEventListener('click', () => {
+          S.storeManageTab = d.k;
+          setHash('manage?tab=' + d.k);
+        });
+        tabs.appendChild(b);
+      });
+      host.appendChild(tabs);
+
+      if (S.storeManageTab === 'applicable') {
+        const note = el('div', 'notice', esc(t('manage.applicable.note')));
+        note.style.marginBottom = '18px';
+        host.appendChild(note);
+      }
+
+      const list = S.storeManageTab === 'applicable'
+        ? DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, myStore))
+        : storeSubmitted(acc);
+
+      if (!list.length) { host.appendChild(el('div', 'empty', esc(t('mg.none')))); return; }
+
+      const wrap = el('div', 'camp-list');
+      list.forEach((c) => {
+        const ct = E.COUPON_TYPES[c.coupon_type];
+        const item = el('div', 'camp-item');
+        const meta = S.storeManageTab === 'applicable'
+          ? `<span>${esc(t('dlg.coupon'))}：${esc(ct.name)} · ${esc(ct.discount_label)}</span>
+             <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
+             <span>${esc(t('progress.col.status'))}：${esc(E.STATUS.campaign[c.status] || c.status)}</span>`
+          : `<span>${esc(t('manage.source'))}：${esc(E.utils.storeLabel(c.store_id || myStore))}</span>
+             <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
+             <span>${esc(ct.name)} · ${esc(ct.discount_label)}</span>
+             <span>${esc(t('ap.submit_date'))}：${esc((c.created_at || '').replace('T', ' '))}</span>`;
+        item.innerHTML = `<div class="camp-main">
+            <div class="camp-name-row">
+              <span class="camp-name">${esc(c.name)}</span>
+              ${S.storeManageTab === 'submitted' ? statusChip(c.status) : ''}
+              ${c.source === 'store_submit' ? `<span class="chip chip-red">${esc(t('manage.store_submit'))}</span>` : ''}
+            </div>
+            <div class="camp-meta">${meta}</div>
+          </div>
+          <div class="camp-right"><button class="btn btn-ghost btn-sm" data-a="detail">${esc(t('mg.detail'))}</button></div>`;
+        $('[data-a="detail"]', item).addEventListener('click', () => openCampaignDetail(c));
+        wrap.appendChild(item);
+      });
+      host.appendChild(wrap);
+      return;
+    }
+
+    /* ---------- 总部版：全部活动按类型分类 ---------- */
     const tabs = el('div', 'tabs');
     const defs = [
       { k: 'all', l: t('mg.tab.all') }, { k: 'auto', l: t('mg.tab.auto') },
@@ -1359,7 +1592,8 @@
     ];
     defs.forEach((d) => {
       const b = el('button', 'tab' + (S.manageTab === d.k ? ' active' : ''), esc(d.l));
-      b.addEventListener('click', () => { S.manageTab = d.k; render(); });
+      b.type = 'button';
+      b.addEventListener('click', () => { S.manageTab = d.k; setHash('manage?tab=' + d.k); });
       tabs.appendChild(b);
     });
     const right = el('div', 'tabs-right');
@@ -1367,9 +1601,7 @@
     tabs.appendChild(right);
     host.appendChild(tabs);
 
-    // 门店账号只看到适用于本店的活动
     let list = DB.campaigns.slice();
-    if (store) list = list.filter((c) => E.campaignCoversStore(c, myStore));
     if (S.manageTab === 'auto') list = list.filter((c) => c.category === 'auto_rule');
     else if (S.manageTab === 'theme') list = list.filter((c) => c.category === 'theme');
     else if (S.manageTab === 'store') list = list.filter((c) => c.is_store);
@@ -1388,15 +1620,19 @@
         : `<span class="chip chip-grey">${esc(t('sr.mode.manual'))}</span>`;
       const catChip = c.is_theme ? `<span class="chip chip-grey">${esc(t('mg.tab.theme'))}</span>` : '';
       const stChip = statusChip(c.status);
+      const sourceChip = c.source === 'store_submit'
+        ? `<span class="chip chip-red">${esc(t('manage.store_submit'))}</span>`
+        : '';
 
       item.innerHTML = `
         <div class="camp-main">
           <div class="camp-name-row">
             <span class="camp-name">${esc(c.name)}</span>
-            ${modeChip}${catChip}
+            ${modeChip}${catChip}${sourceChip}
           </div>
           <div class="camp-meta">
             <span>${esc(t('mg.scope'))}：${esc(E.scopeLabelOf(c))}</span>
+            ${c.source === 'store_submit' ? `<span>${esc(t('manage.source'))}：${esc(E.utils.storeLabel(c.store_id))}</span>` : ''}
             <span>${esc(t('mg.recent'))}：${esc(num(issued))} ${esc(t('mg.sheets'))}</span>
             <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(E.COUPON_TYPES[c.coupon_type].discount_label)}</span>
           </div>
@@ -1427,10 +1663,34 @@
   }
 
   function openCampaignDetail(c) {
+    const acc = account();
+    const store = isStore();
     const ct = E.COUPON_TYPES[c.coupon_type];
     const issued = DB.couponInstance.filter((x) => x.campaign_id === c.campaign_id);
     const claimed = issued.filter((x) => x.claimed_at).length;
     const used = issued.filter((x) => x.redeemed_at).length;
+    const storeName = E.utils.storeLabel(acc.scope_id || c.store_id || '');
+
+    const resultBlock = store
+      ? `<div class="notice grey" style="margin-top:20px">${esc(t('rule.claim_redeem', { store: storeName }))}</div>`
+      : `<div style="margin-top:20px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:10px">发放结果</div>
+          <div class="metrics metrics-4" style="margin-bottom:0">
+            <div class="metric" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">发放</div><div class="metric-value small">${esc(num(issued.length))}</div></div>
+            <div class="metric" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">领取</div><div class="metric-value small">${esc(num(claimed))}</div></div>
+            <div class="metric" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">核销</div><div class="metric-value small">${esc(num(used))}</div></div>
+            <div class="metric" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">核销率</div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></div>
+          </div>
+        </div>`;
+    const ruleLines = ct.rules.slice();
+    if (store) {
+      ruleLines.push(t('rule.claim_all'));
+      ruleLines.push(t('rule.redeem_store', { store: storeName }));
+    }
 
     const body = el('div');
     body.innerHTML = `
@@ -1440,33 +1700,23 @@
       <div class="dl-row"><span class="k">有效期</span><span class="v">${esc(ct.validity_label)}</span></div>
       <div class="dl-row"><span class="k">每人次数</span><span class="v">${esc(ct.per_member_label)}</span></div>
       <div class="dl-row"><span class="k">积分同用</span><span class="v">${esc(ct.stack_label)}</span></div>
-      <div class="dl-row"><span class="k">适用范围</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
+      <div class="dl-row"><span class="k">${esc(t(store ? 'dlg.scope.redeem' : 'mg.scope'))}</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
+      ${c.source === 'store_submit' ? `<div class="dl-row"><span class="k">${esc(t('manage.source'))}</span><span class="v">${esc(E.utils.storeLabel(c.store_id))}</span></div>` : ''}
       <div class="dl-row"><span class="k">目标人群</span><span class="v">${esc(c.segment_definition || '—')}</span></div>
       <div class="dl-row"><span class="k">创建人 / 时间</span><span class="v">${esc(c.created_by)} · ${esc(c.created_at)}</span></div>
       <div class="dl-row"><span class="k">状态</span><span class="v">${statusChip(c.status)}</span></div>
-      <div style="margin-top:20px">
-        <div style="font-size:15px;font-weight:700;margin-bottom:10px">发放结果</div>
-        <div class="metrics metrics-4" style="margin-bottom:0">
-          <div class="metric" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">发放</div><div class="metric-value small">${esc(num(issued.length))}</div></div>
-          <div class="metric" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">领取</div><div class="metric-value small">${esc(num(claimed))}</div></div>
-          <div class="metric" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">核销</div><div class="metric-value small">${esc(num(used))}</div></div>
-          <div class="metric" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">核销率</div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></div>
-        </div>
-      </div>
+      ${resultBlock}
       <div style="margin-top:20px">
         <div style="font-size:15px;font-weight:700;margin-bottom:8px">券规则</div>
         <ul style="margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-2);line-height:1.9">
-          ${ct.rules.map((r) => `<li>${esc(r)}</li>`).join('')}
+          ${ruleLines.map((r) => `<li>${esc(r)}</li>`).join('')}
         </ul>
       </div>`;
 
     const foot = el('div', '');
-    if (c.mode === 'auto' && (c.status === 'running' || c.status === 'stopped')) {
+    if (!store && c.mode === 'auto' && (c.status === 'running' || c.status === 'stopped')) {
       const b = el('button', 'btn btn-ghost', esc(c.status === 'running' ? t('mg.stop') : t('mg.start')));
+      b.type = 'button';
       b.addEventListener('click', async () => {
         const next = c.status === 'running' ? 'stopped' : 'running';
         const r = await confirm({
@@ -1476,28 +1726,37 @@
           okText: '确认', reasonLabel: '操作原因', reasonPlaceholder: '填写操作原因（写入审计记录）',
         });
         if (!r) return;
-        E.setCampaignStatus(c.campaign_id, next, account().display_name || account().name, r.reason);
+        E.setCampaignStatus(c.campaign_id, next, acc.display_name || acc.name, r.reason);
         toast(`活动已${next === 'running' ? '启用' : '停用'}`, 'ok');
         render();
       });
       foot.appendChild(b);
     }
     const close = el('button', 'btn btn-primary', esc(t('ap.dlg.close')));
+    close.type = 'button';
     foot.appendChild(close);
     const mo = modal({ title: c.name, subtitle: `${c.campaign_id} · ${E.scopeLabelOf(c)}`, body, footer: foot });
     close.addEventListener('click', mo.close);
 
-    // 活动详情 → 其他页面的直达入口（此前只能关掉弹窗再自己找菜单）
-    const goAp = el('button', 'btn btn-ghost', '查看审批记录');
-    goAp.addEventListener('click', () => { mo.close(); S.approvalTab = 'all'; setHash('approval'); });
-    foot.insertBefore(goAp, close);
-    const goSr = el('button', 'btn btn-ghost', '查看发送记录');
-    goSr.addEventListener('click', () => {
+    // 活动详情 → 对应角色的审批页；总部额外提供发送记录直达
+    const goAp = el('button', 'btn btn-ghost', store ? t('nav.approval.store') : '查看审批记录');
+    goAp.type = 'button';
+    goAp.addEventListener('click', () => {
       mo.close();
-      S.records.mode = ''; S.records.result = ''; S.records.campaignId = c.campaign_id;
-      setHash('records');
+      S.approvalTab = 'all';
+      setHash(store ? 'progress' : 'approval');
     });
-    foot.insertBefore(goSr, close);
+    foot.insertBefore(goAp, close);
+    if (!store) {
+      const goSr = el('button', 'btn btn-ghost', '查看发送记录');
+      goSr.type = 'button';
+      goSr.addEventListener('click', () => {
+        mo.close();
+        S.records.mode = ''; S.records.result = ''; S.records.campaignId = c.campaign_id;
+        setHash('records');
+      });
+      foot.insertBefore(goSr, close);
+    }
   }
 
   /* ================================================================
@@ -1595,15 +1854,18 @@
         const modeChip = c.mode === 'auto'
           ? `<span class="chip chip-red">${esc(t('mg.tab.auto'))}</span>`
           : `<span class="chip chip-grey">${esc(t('sr.mode.manual'))}</span>`;
+        const sourceChip = c.source === 'store_submit'
+          ? `<span class="chip chip-red">${esc(t('manage.store_submit'))}</span>` : '';
         item.innerHTML = `
           <div class="camp-main">
             <div class="camp-name-row">
               <span class="camp-name">${esc(c.name)}</span>
               ${statusChip(c.status)}
-              ${modeChip}
+              ${modeChip}${sourceChip}
             </div>
             <div class="camp-meta">
               <span>${esc(t('ap.submitter'))}：${esc(log.by || c.created_by)}</span>
+              ${c.source === 'store_submit' ? `<span>${esc(t('manage.source'))}：${esc(E.utils.storeLabel(c.store_id))}</span>` : ''}
               <span>${esc(t('ap.submit_date'))}：${esc((c.created_at || '').replace('T', ' '))}</span>
               <span>${esc(t('ap.approver'))}：${esc(log.approver || '—')}</span>
               <span>${esc(t('ap.approval_date'))}：${esc(log.approval_date === '—' ? '—' : (log.approval_date || '—').replace('T', ' '))}</span>
@@ -1627,13 +1889,17 @@
     const acc = account();
     const ct = E.COUPON_TYPES[c.coupon_type];
     const editable = c.status === 'pending' && acc.can_approve;
+    const scopeLabelText = c.source === 'store_submit' ? t('dlg.scope.redeem') : t('mg.scope');
+    const ruleNote = c.source === 'store_submit'
+      ? `<div class="notice grey" style="margin-top:16px">${esc(t('rule.claim_redeem', { store: E.utils.storeLabel(c.store_id) }))}</div>` : '';
     const body = el('div');
     body.innerHTML = `
       <div class="dl-row"><span class="k">活动编号</span><span class="v mono">${esc(c.campaign_id)}</span></div>
       <div class="dl-row"><span class="k">券种 / 折扣</span><span class="v">${esc(ct.name)} · ${esc(ct.discount_label)}</span></div>
       <div class="dl-row"><span class="k">活动类型</span><span class="v">${esc(c.mode === 'auto' ? t('mg.tab.auto') : t('sr.mode.manual'))}</span></div>
-      <div class="dl-row"><span class="k">适用范围</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
+      <div class="dl-row"><span class="k">${esc(scopeLabelText)}</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
       <div class="dl-row"><span class="k">目标人群</span><span class="v">${esc(c.segment_definition || '—')}</span></div>
+      ${ruleNote}
       <div class="dl-row"><span class="k">${esc(t('ap.submitter'))}</span><span class="v">${esc(log.by || c.created_by)}</span></div>
       <div class="dl-row"><span class="k">${esc(t('ap.submit_date'))}</span><span class="v">${esc((c.created_at || '').replace('T', ' '))}</span></div>
       <div class="dl-row"><span class="k">${esc(t('ap.approver'))}</span><span class="v">${esc(log.approver || '—')}</span></div>
@@ -1669,7 +1935,7 @@
         const modeText = c.mode === 'auto' ? t('mg.tab.auto') : t('sr.mode.manual');
         const effText = c.mode === 'auto'
           ? '批准后将按规则自动持续发券，已发出的券不受影响。'
-          : '批准后进入待发放状态，仍需逐批人工发放。';
+          : '批准后由总部统一发放并进入运行中；全港会员可领取，核销按活动的核销范围统计。';
         const confirmed = await global.UI.confirm({
           title: '批准活动',
           message: `确认批准「${c.name}」？`,
@@ -1689,12 +1955,91 @@
         ? E.approveCampaign(c.campaign_id, who, cmt)
         : E.rejectCampaign(c.campaign_id, who, cmt);
       if (!r.ok) { toast(r.error, 'err'); return; }
+      // 批准即进入总部统一发放：手批活动由「已批准」转为运行中，
+      // 门店审批进度与本店适用列表因此能立即反映结果（状态仍由引擎写入）。
+      if (approve && r.campaign && r.campaign.status === 'approved') {
+        E.setCampaignStatus(c.campaign_id, 'running', who, '批准后由总部统一发放');
+        E.audit(who, 'distribute_campaign', 'campaign', c.campaign_id,
+          `批准「${c.name}」后由总部统一发放，活动进入运行中`, cmt || '审批后统一发放');
+      }
       mo.close();
       toast(approve ? `已批准「${c.name}」` : `已驳回「${c.name}」`, approve ? 'ok' : 'warn');
       render();
     }
     if (app) app.addEventListener('click', () => decide(true));
     if (rej) rej.addEventListener('click', () => decide(false));
+  }
+
+  /* ================================================================
+   * 门店只读页面 —— 审批进度 / 本店信息
+   * ==============================================================*/
+  function storeSubmitted(acc) {
+    const who = acc.display_name || acc.name;
+    return DB.campaigns.filter((c) => c.source === 'store_submit' &&
+      (c.created_by === who || c.owner === who));
+  }
+
+  function renderProgress(host) {
+    const acc = account();
+    const head = el('div', 'page-head');
+    head.innerHTML = `<div>
+        <h2 class="page-title">${esc(t('progress.title'))}</h2>
+        <p class="page-desc">${esc(t('progress.desc'))}</p>
+      </div>`;
+    host.appendChild(head);
+
+    const rule = el('div', 'notice', esc(t('rule.claim_redeem', { store: E.utils.storeLabel(acc.scope_id) })));
+    rule.style.marginBottom = '18px';
+    host.appendChild(rule);
+
+    const list = storeSubmitted(acc);
+    if (!list.length) { host.appendChild(el('div', 'empty', esc(t('progress.empty')))); return; }
+
+    const wrap = el('div', 'camp-list');
+    list.forEach((c) => {
+      const log = DB.approvalLog.filter((l) => l.campaign_id === c.campaign_id).slice(-1)[0] || {};
+      const item = el('div', 'camp-item');
+      item.innerHTML = `<div class="camp-main">
+          <div class="camp-name-row"><span class="camp-name">${esc(c.name)}</span>${statusChip(c.status)}
+            <span class="chip chip-red">${esc(t('manage.store_submit'))}</span></div>
+          <div class="camp-meta">
+            <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(E.COUPON_TYPES[c.coupon_type].discount_label)}</span>
+            <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
+            <span>${esc(t('progress.col.approver'))}：${esc(log.approver || '—')}</span>
+            <span>${esc(t('progress.col.date'))}：${esc(log.approval_date && log.approval_date !== '—' ? log.approval_date.replace('T', ' ') : '—')}</span>
+            <span>${esc(t('progress.col.comment'))}：${esc(log.comment || '—')}</span>
+          </div>
+        </div>
+        <div class="camp-right"><button class="btn btn-ghost btn-sm" data-a="detail">${esc(t('ap.detail'))}</button></div>`;
+      $('[data-a="detail"]', item).addEventListener('click', () => openApprovalDialog(c, log));
+      wrap.appendChild(item);
+    });
+    host.appendChild(wrap);
+  }
+
+  function renderStoreInfo(host) {
+    const acc = account();
+    const storeName = E.utils.storeLabel(acc.scope_id);
+    const head = el('div', 'page-head');
+    head.innerHTML = `<div>
+        <h2 class="page-title">${esc(t('storeinfo.title'))}</h2>
+        <p class="page-desc">${esc(t('storeinfo.desc'))}</p>
+      </div>`;
+    host.appendChild(head);
+
+    const card = el('div', 'card card-pad');
+    const floor = E.HQ_POLICY.store_discount_floor;
+    const couponNames = E.HQ_POLICY.store_allowed_coupon_types
+      .map((k) => E.COUPON_TYPES[k] && E.COUPON_TYPES[k].name).filter(Boolean).join('、');
+    card.innerHTML = `
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.name'))}</span><span class="v">${esc(storeName)}</span></div>
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.code'))}</span><span class="v mono">${esc(acc.scope_id)}</span></div>
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.scope'))}</span><span class="v">${esc(storeName)} · ${esc(t('ov.fixed'))}</span></div>
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.coupons'))}</span><span class="v">${esc(couponNames)}</span></div>
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.discount'))}</span><span class="v">${(floor * 10).toFixed(1).replace('.0', '')} 折</span></div>
+      <div class="dl-row"><span class="k">${esc(t('storeinfo.approval'))}</span><span class="v">${E.HQ_POLICY.store_require_approval ? esc(t('dlg.source.store')) : '—'}</span></div>
+      <div class="notice grey" style="margin-top:20px">${esc(t('storeinfo.readonly'))}</div>`;
+    host.appendChild(card);
   }
 
   /* ================================================================

@@ -132,7 +132,7 @@
      discount_max: 允许的最大折扣力度（8 折 = 0.8）；buy_one_get_one 视为超出 */
   const HQ_POLICY = {
     store_discount_floor: 0.80,          // 门店活动折扣不得低于 8 折（0.8）
-    store_allowed_coupon_types: ['winback', 'halloween', 'store_local'],
+    get store_allowed_coupon_types() { return Object.keys(COUPON_TYPES); },
     store_require_approval: true,
     hq_auto_approve_threshold: null,     // 总部提交仍需审批（按活动审批配置）
     frequency_cap: { per_customer_per_week: 3, per_customer_per_day: 1 },
