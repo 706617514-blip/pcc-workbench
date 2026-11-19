@@ -162,7 +162,7 @@
     // 看板筛选（PRD 5.1）
     ov: {
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
-      storeFilter: null, activityFilter: null, focus: null,
+      storeFilter: null, activityFilter: null, focus: null, heatView: 'week',
     },
     // 活动创建页筛选
     create: {
@@ -435,8 +435,39 @@
   }
 
   /* ================================================================
-   * 页面 1 —— 总览（PRD 5.1 / 图 2–5 / 图 14）
+   * 页面 1 —— 数据大盘（极简版）
+   * 从上到下只回答四个问题：现在怎样 / 走势如何 / 谁好谁差 / 什么时段核销最多。
    * ==============================================================*/
+
+  const HEAT_SLOTS = [
+    { key: '08-10', from: 8, to: 10, labelKey: 'ov.heat.slot.early' },
+    { key: '10-12', from: 10, to: 12, labelKey: 'ov.heat.slot.midday' },
+    { key: '12-14', from: 12, to: 14, labelKey: 'ov.heat.slot.lunch' },
+    { key: '14-17', from: 14, to: 17, labelKey: 'ov.heat.slot.afternoon' },
+    { key: '17-19', from: 17, to: 19, labelKey: 'ov.heat.slot.evening' },
+    { key: '19-21', from: 19, to: 21, labelKey: 'ov.heat.slot.night' },
+  ];
+  const HEAT_WEEKDAYS = [
+    'ov.heat.mon', 'ov.heat.tue', 'ov.heat.wed', 'ov.heat.thu',
+    'ov.heat.fri', 'ov.heat.sat', 'ov.heat.sun',
+  ];
+
+  /** 沿用 PCC 浅柠檬 → 沙色 → 玫瑰 → 深酒红的浅到深标尺 */
+  function heatColor(ratio) {
+    const stops = [[255, 248, 202], [240, 217, 200], [226, 186, 178], [107, 11, 12]];
+    const x = Math.max(0, Math.min(1, ratio));
+    const p = x * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(p));
+    const f = p - i;
+    const c = stops[i].map((v, j) => Math.round(v + (stops[i + 1][j] - v) * f));
+    return `rgb(${c.join(',')})`;
+  }
+
+  function mondayOf(dateStr) {
+    const d = E.utils.d2(dateStr);
+    return E.utils.iso(new Date(d.getTime() - ((d.getDay() + 6) % 7) * 86400000));
+  }
+
   function renderOverview(host) {
     const acc = account();
     const store = isStore();
@@ -445,29 +476,11 @@
     // 门店总览：门店范围固定
     if (store) S.ov.storeFilter = myStore;
 
-    const head = el('div', 'page-head');
-    head.innerHTML = `<div>
-        <h2 class="page-title">${esc(t(store ? 'ov.title.store' : 'ov.title'))}</h2>
-      </div>`;
-    const rightBox = el('div', '');
-    rightBox.style.display = 'flex'; rightBox.style.gap = '12px'; rightBox.style.alignItems = 'center';
-    if (store) {
-      const tag = el('div', 'chip chip-red', `${esc(E.utils.storeLabel(myStore))} · ${esc(t('ov.fixed'))}`);
-      tag.style.height = '42px'; tag.style.padding = '0 18px'; tag.style.fontSize = '13.5px';
-      rightBox.appendChild(tag);
-    }
-    const exp = el('button', 'btn btn-ghost', `${SVG.export}<span>${esc(t('ov.export'))}</span>`);
-    exp.addEventListener('click', () => openExport());
-    rightBox.appendChild(exp);
-    head.appendChild(rightBox);
-    host.appendChild(head);
-
-    // 筛选栏
+    // 筛选栏：日期范围、券种多选、门店范围、应用、重置，全部保留不动
     const bar = el('div', 'filterbar');
     const row = el('div', 'filterbar-row');
     bar.appendChild(row);
 
-    // 券种 / 活动（多选，「全部」互斥）
     const couponOptions = E.couponTypeKeys()
       .filter((k) => !store || true)
       .map((k) => ({ v: k, label: `${E.COUPON_TYPES[k].name} · ${E.COUPON_TYPES[k].discount_label}` }));
@@ -476,7 +489,6 @@
     const ms = multiSelect({
       placeholder: t('ov.all_coupons'), allLabel: t('ov.all_coupons'),
       options: couponOptions, values: S.ov.couponTypes, exclusiveAll: true,
-      // 批量选择：勾选期间不重建页面（否则下拉会关闭），点「应用」后再刷新
       onChange: (v) => { S.ov.couponTypes = v; markPending(); },
       onApply: () => render(),
     });
@@ -484,7 +496,6 @@
     fCoupon.style.flex = '0 0 300px';
     row.appendChild(fCoupon);
 
-    // 门店范围（门店账号锁定）
     if (store) {
       const f = el('div', 'field');
       f.innerHTML = `<label>${esc(t('ov.filter.store'))}</label>`;
@@ -505,7 +516,6 @@
       row.appendChild(f);
     }
 
-    // 日期范围
     const fDate = el('div', 'field');
     fDate.innerHTML = `<label>${esc(t('ov.filter.date'))}</label>`;
     const rp = rangePicker({
@@ -524,7 +534,6 @@
     apply.addEventListener('click', () => { render(); toast('已应用筛选条件', 'ok'); });
     row.appendChild(apply);
 
-    // 一键重置：筛不到数据时不用逐项清空
     const reset = el('button', 'btn btn-ghost', '重置');
     reset.style.marginLeft = '10px';
     reset.addEventListener('click', () => {
@@ -538,106 +547,12 @@
     row.appendChild(reset);
     host.appendChild(bar);
 
-    /* ---------- 模块聚焦：原位放大 / 底部缩略条 / 沿原路收回 ---------- */
-    const board = el('div', 'dash-board');
-    const toolbar = el('div', 'focus-toolbar');
-    toolbar.innerHTML = `<button class="focus-back" type="button">${DASH_ICONS.collapse}<span>返回数据大盘</span></button>
-      <span class="focus-crumb"></span><span class="focus-tip">点击下方缩略条切换模块 · Esc 返回</span>`;
-    board.appendChild(toolbar);
-    const stage = el('div', 'dash-stage');
-    const strip = el('div', 'dash-thumbstrip');
-    board.appendChild(stage);
-    board.appendChild(strip);
-    host.appendChild(board);
-
-    const mods = [];
-    /** 包装一个看板模块：保留原布局位置，聚焦时移动到 stage / strip */
-    function addMod(cfg) {
-      const wrap = el('div', 'dash-module');
-      wrap.dataset.mod = cfg.key;
-      const full = el('div', 'mod-full');
-      full.appendChild(cfg.node);
-      wrap.appendChild(full);
-      const expand = el('button', 'mod-expand');
-      expand.type = 'button';
-      expand.title = '放大查看详情';
-      expand.setAttribute('aria-label', '放大查看详情');
-      expand.innerHTML = DASH_ICONS.expand;
-      expand.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
-      wrap.appendChild(expand);
-      const thumb = el('button', 'mod-thumb');
-      thumb.type = 'button';
-      thumb.innerHTML = `<span class="thumb-ic">${cfg.icon || ''}</span>
-        <span class="thumb-txt"><b>${esc(cfg.title)}</b><span>${esc(cfg.meta || '')}</span></span>`;
-      thumb.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo(cfg.key); });
-      wrap.appendChild(thumb);
-      wrap.addEventListener('click', (ev) => {
-        if (S.ov.focus) return;
-        if (ev.target.closest('button, a, input, select, canvas, .dropdown-panel, .calendar')) return;
-        focusTo(cfg.key);
-      });
-      cfg.home.appendChild(wrap);
-      mods.push({ key: cfg.key, title: cfg.title, wrap, home: cfg.home, anchor: cfg.anchor || null });
-      return wrap;
-    }
-
-    /** FLIP：记录旧位置 → 改 DOM → 从旧位置动画回新位置 */
-    function focusTo(key, instant) {
-      const cur = S.ov.focus;
-      if (cur === key) return;
-      const first = new Map();
-      mods.forEach((m) => {
-        if (m.wrap.isConnected) first.set(m.wrap, m.wrap.getBoundingClientRect());
-      });
-      // 先停掉上一轮动画，避免带着 transform 测量新位置
-      mods.forEach((m) => m.wrap.getAnimations().forEach((a) => a.cancel()));
-
-      if (key) {
-        board.classList.add('is-focused');
-        const target = mods.find((m) => m.key === key);
-        if (!target) return;
-        stage.appendChild(target.wrap);
-        mods.filter((m) => m !== target).forEach((m) => strip.appendChild(m.wrap));
-        toolbar.querySelector('.focus-crumb').innerHTML = `当前详情：<b>${esc(target.title)}</b>`;
-      } else {
-        board.classList.remove('is-focused');
-        mods.forEach((m) => {
-          if (m.anchor && m.anchor.parentNode === m.home) m.home.insertBefore(m.wrap, m.anchor);
-          else m.home.appendChild(m.wrap);
-        });
-      }
-      S.ov.focus = key;
-
-      if (!instant) {
-        mods.forEach((m) => {
-          const f = first.get(m.wrap);
-          if (!f) return;
-          const l = m.wrap.getBoundingClientRect();
-          if (l.width < 1 || l.height < 1) return;
-          const dx = f.left - l.left, dy = f.top - l.top;
-          const sx = f.width / l.width, sy = f.height / l.height;
-          if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < .01 && Math.abs(sy - 1) < .01) return;
-          m.wrap.animate([
-            { transform: `translate(${dx}px,${dy}px) scale(${sx},${sy})`, opacity: .82 },
-            { transform: 'none', opacity: 1 },
-          ], { duration: 460, easing: 'cubic-bezier(.22,.8,.22,1)' });
-        });
-      }
-      if (key === 'trend' || cur === 'trend') requestAnimationFrame(drawTrend);
-    }
-    toolbar.querySelector('.focus-back').addEventListener('click', () => focusTo(null));
-
-    const gridAnchorEl = el('div', 'dash-grid-anchor');
-    host.appendChild(gridAnchorEl);
-    const gridAnchor = () => gridAnchorEl;
-
-    // 指标 + 新版看板
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
     const scopeLabel = store ? E.utils.storeLabel(myStore)
       : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
-    // 上一等长周期：让核心数字有「比上期如何」的上下文
+    // 上一等长周期：让核心数字保留「较上期」标注
     const dayCount = Math.max(1, Math.round(
       (new Date(S.ov.dateTo) - new Date(S.ov.dateFrom)) / 86400000) + 1);
     const prev = E.computeMetrics({
@@ -653,9 +568,8 @@
       return { text: `${d >= 0 ? '↑' : '↓'} ${Math.abs(d).toFixed(1)}${isRate ? 'pt' : '%'} 较上期`, good };
     };
 
-    // 顶层 KPI：3–4 个能触发动作的核心指标
-    const summary = panel('业务概览', '', DASH_ICONS.summary);
-    const mg = el('div', 'metrics metrics-4 dash-metrics');
+    /* ---------- 模块 2：一排 4 个数字卡 ---------- */
+    const mg = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
     if (store) {
       mg.appendChild(kpiCard(t('ov.metric.used'), num(metrics.used), '本店发生的核销',
         deltaOf(metrics.used, prev.used, false), DASH_ICONS.check, 'tone-lemon'));
@@ -670,208 +584,29 @@
       mg.appendChild(kpiCard(t('ov.metric.issued'), num(metrics.issued),
         `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`,
         deltaOf(metrics.issued, prev.issued, false), DASH_ICONS.ticket, 'tone-lemon'));
-      mg.appendChild(kpiCard('领取率', pct(metrics.claim_rate),
+      mg.appendChild(kpiCard(t('ov.label.claim_rate'), pct(metrics.claim_rate),
         `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`,
         deltaOf(metrics.claim_rate, prev.claim_rate, true), DASH_ICONS.check, 'tone-blue'));
-      mg.appendChild(kpiCard('核销率', pct(metrics.redeem_rate),
+      mg.appendChild(kpiCard(t('ov.label.redeem_rate'), pct(metrics.redeem_rate),
         `已核销 ${num(metrics.used_of_issued)} 张`,
         deltaOf(metrics.redeem_rate, prev.redeem_rate, true), DASH_ICONS.campaign, 'tone-rose'));
-      mg.appendChild(kpiCard('关联订单实付', money(metrics.paid_amount), '本期核销带来的实际支付',
+      mg.appendChild(kpiCard(t('ov.label.related_paid'), money(metrics.paid_amount), '本期核销带来的实际支付',
         deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand'));
     }
-    summary.body.appendChild(mg);
-    addMod({ key: 'summary', title: '业务概览', icon: DASH_ICONS.summary,
-      meta: store ? `本店核销 ${num(metrics.used)} · 实付 ${money(metrics.paid_amount)}`
-                  : `发放 ${num(metrics.issued)} · 核销率 ${pct(metrics.redeem_rate)}`,
-      node: summary.root, home: host, anchor: gridAnchor() });
+    host.appendChild(mg);
 
-    // 中段：左侧「趋势 + 漏斗」解释变化，右侧「券种矩阵 + 异常」定位差异
-    const grid = el('div', 'dash-mid dash-mid-v2');
-    const leftCol = el('div', 'dash-col');
-    const rightCol = el('div', 'dash-col');
-
+    /* ---------- 模块 3：发放与核销趋势（总部两条线，门店一条线） ---------- */
     const chartCard = el('div', 'chart-card dash-chart');
     chartCard.innerHTML = `<div class="chart-head">
-        <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend'))}</div>
+        <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend.simple'))}</div>
         <div class="legend">
           ${store ? '' : `<span><i class="lg-issued"></i>${esc(t('ov.legend.issued'))}</span>`}
-          ${store ? '' : `<span><i class="lg-claimed"></i>${esc(t('ov.legend.claimed'))}</span>`}
           <span><i class="${store ? 'lg-issued' : 'lg-used'}"></i>${esc(t('ov.legend.used'))}</span>
         </div>
       </div>`;
     const canvas = el('canvas');
     chartCard.appendChild(canvas);
-    const peak = metrics.trend.reduce((best, x) => (!best || x.issued > best.issued ? x : best), null);
-    const avgIssued = metrics.trend.length ? Math.round(metrics.issued / metrics.trend.length) : 0;
-    const insight = el('div', 'chart-insight');
-    insight.innerHTML = `<div><span>覆盖天数</span><b>${num(metrics.trend.length)} 天</b></div>
-      <div><span>单日峰值发放</span><b>${num(peak ? peak.issued : 0)}</b></div>
-      <div><span>日均发放</span><b>${num(avgIssued)}</b></div>`;
-    chartCard.appendChild(insight);
-    addMod({ key: 'trend', title: '发放核销趋势', icon: DASH_ICONS.chart,
-      meta: `${num(metrics.trend.length)} 天 · 单日峰值 ${num(peak ? peak.issued : 0)}`,
-      node: chartCard, home: leftCol });
-
-    // 漏斗：回答「同一批券在哪一步流失」
-    const funnelPanel = panel('券链路转化', '本期发放券的领取与核销损耗', DASH_ICONS.chart);
-    const claimBase = metrics.issued || 0;
-    const stepClaim = metrics.claimed_of_issued || 0;
-    const stepUsed = metrics.used_of_issued || 0;
-    funnelPanel.body.appendChild(vizFunnel([
-      { label: '成功发放', value: claimBase, valueText: `${num(claimBase)} 张`, note: '筛选范围内发放的券' },
-      { label: '已被领取', value: stepClaim, valueText: `${num(stepClaim)} 张`,
-        note: `领取率 ${pct(metrics.claim_rate)} · 较发放环节损耗 ${pct(claimBase ? 1 - metrics.claim_rate : 0)}` },
-      { label: '完成核销', value: stepUsed, valueText: `${num(stepUsed)} 张`,
-        note: `核销率 ${pct(metrics.redeem_rate)} · 领取后转化 ${pct(stepClaim ? stepUsed / stepClaim : 0)}` },
-    ]));
-    const paidStrip = el('div', 'funnel-paid');
-    paidStrip.innerHTML = `<span>关联订单实付</span><b>${esc(money(metrics.paid_amount))}</b>
-      <span class="funnel-paid-hint">来自 ${num(stepUsed)} 张已核销券</span>`;
-    funnelPanel.body.appendChild(paidStrip);
-    addMod({ key: 'funnel', title: '券链路转化', icon: DASH_ICONS.chart,
-      meta: `${num(claimBase)} → ${num(stepUsed)} 张 · 核销率 ${pct(metrics.redeem_rate)}`,
-      node: funnelPanel.root, home: leftCol });
-
-    // 门店账号保留「本店适用活动」，避免改版后丢失门店视角
-    if (store) {
-      const applicable = panel(t('ov.side.applicable'), '总部与本店覆盖范围内的运行中活动', DASH_ICONS.campaign);
-      DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, myStore))
-        .forEach((c) => {
-          const r = el('div', 'side-row');
-          r.innerHTML = `<span class="k">${esc(c.name)}</span>
-            <span class="t-small t-muted">${esc(c.store_scope === 'all_hk' ? '总部活动' : c.store_scope === 'stores' ? '总部活动（指定门店）' : '门店活动')}</span>`;
-          applicable.body.appendChild(r);
-        });
-      if (!applicable.body.children.length) applicable.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
-      addMod({ key: 'applicable', title: t('ov.side.applicable'), icon: DASH_ICONS.campaign,
-        meta: `${num(applicable.body.children.length)} 个运行中活动`,
-        node: applicable.root, home: leftCol });
-    }
-
-    // 券种矩阵：每个券种一张卡，环形显示核销率，配真实发/领/销数值
-    const couponPanel = panel('券种表现', '按券种看领取与核销效率', DASH_ICONS.ticket);
-    const couponGrid = el('div', 'coupon-grid');
-    Object.keys(metrics.byType).forEach((k) => couponGrid.appendChild(couponVizCard(metrics.byType[k])));
-    couponPanel.body.appendChild(couponGrid);
-    addMod({ key: 'coupons', title: '券种表现', icon: DASH_ICONS.ticket,
-      meta: `${num(Object.keys(metrics.byType).length)} 类券 · 点击看单券详情`,
-      node: couponPanel.root, home: rightCol });
-
-    // 异常拦截：风险分布 + 可直接跳转的明细
-    const anomalyPanel = panel('异常拦截', '本期需要复核的发放风险', DASH_ICONS.alert);
-    const dupBlock = metrics.anomalies.filter((a) => /DUP|IDEMPOTENT/.test(a.code)).length;
-    const sendFail = metrics.anomalies.filter((a) => a.type === 'send_failed').length;
-    const anomBox = el('div', 'viz-anomaly');
-    const donutRow = el('div', 'viz-anomaly-row');
-    donutRow.appendChild(vizDonut(metrics.anomalies.length, Math.max(metrics.anomalies.length, 12),
-      '#6B0B0C', num(metrics.anomalies.length), '待查异常'));
-    const stats = el('div', 'viz-anomaly-stats');
-    stats.appendChild(vizBar('重复发放拦截', dupBlock / 12, num(dupBlock), 'sand', dupBlock > 0));
-    stats.appendChild(vizBar('发送失败', sendFail / 12, num(sendFail), 'blue', sendFail > 0));
-    donutRow.appendChild(stats);
-    anomBox.appendChild(donutRow);
-    anomalyPanel.body.appendChild(anomBox);
-    if (metrics.anomalies.length) {
-      const an = el('div', 'anomaly-row-wrap');
-      an.style.marginTop = '12px';
-      metrics.anomalies.slice(0, 2).forEach((a) => {
-        const line = el('button', 'anomaly-row');
-        line.type = 'button';
-        line.innerHTML = `<span>${esc(a.label)}</span><span class="anomaly-go">查看 →</span>`;
-        line.addEventListener('click', () => {
-          S.records.result = a.type === 'send_failed' ? 'failed' : '';
-          S.records.mode = '';
-          S.records.campaignId = a.campaign_id || '';
-          setHash('records');
-          toast('已跳转到发送记录，并套用与该异常相关的筛选', 'ok', 2800);
-        });
-        an.appendChild(line);
-      });
-      anomalyPanel.body.appendChild(an);
-    } else {
-      anomalyPanel.body.appendChild(el('div', 'notice green', '本期没有异常拦截记录。'));
-    }
-    addMod({ key: 'anomaly', title: '异常拦截', icon: DASH_ICONS.alert,
-      meta: `${num(metrics.anomalies.length)} 条待复核`,
-      node: anomalyPanel.root, home: rightCol });
-
-    grid.appendChild(leftCol);
-    grid.appendChild(rightCol);
-    host.appendChild(grid);
-
-    // 重点活动 + 待办：把平台的核心动作直接放到总览，形成完整的看板闭环
-    const bottom = el('div', 'dash-bottom');
-    const campPanel = panel('重点活动', '', DASH_ICONS.campaign);
-    const statusTone = { running: 'green', approved: 'green', pending: 'amber', draft: 'grey', rejected: 'red', stopped: 'grey' };
-    DB.campaigns.slice()
-      .sort((a, b) => String(a.campaign_id).localeCompare(String(b.campaign_id)))
-      .slice(0, 4)
-      .forEach((c) => {
-        const row = el('button', 'dash-list-row');
-        row.type = 'button';
-        const ctype = E.COUPON_TYPES[c.coupon_type];
-        row.innerHTML = `<div class="dash-list-main">
-            <div class="dash-list-name">${esc(c.name)}</div>
-            <div class="dash-list-sub">${esc(ctype ? ctype.name : c.coupon_type)} · ${esc(c.mode === 'auto' ? '自动规则' : '手动活动')} · ${esc(c.campaign_id)}</div>
-          </div>
-          <span class="chip chip-${statusTone[c.status] || 'grey'}">${esc(E.STATUS.campaign[c.status] || c.status)}</span>
-          <span class="dash-list-arrow">→</span>`;
-        row.addEventListener('click', () => {
-          S.manageTab = 'all';
-          setHash('manage');
-          toast(`已打开活动管理，可在列表中定位 ${c.campaign_id}`, 'ok', 2600);
-        });
-        campPanel.body.appendChild(row);
-      });
-    if (!campPanel.body.children.length) campPanel.body.innerHTML = `<div class="empty">${esc(t('mg.none'))}</div>`;
-    addMod({ key: 'campaigns', title: '重点活动', icon: DASH_ICONS.campaign,
-      meta: `${num(campPanel.body.children.length)} 个活动 · 点击定位到管理页`,
-      node: campPanel.root, home: bottom });
-
-    const pending = DB.campaigns.filter((c) => c.status === 'pending');
-    const anomalyCount = metrics.anomalies.length;
-    const todo = panel('待办与提醒', '', DASH_ICONS.alert);
-    const todoViz = el('div', 'todo-viz');
-    const todoMax = Math.max(pending.length, anomalyCount, 6);
-    todoViz.appendChild(vizDonut(pending.length, todoMax, '#A66B2A', num(pending.length), '待审批活动'));
-    todoViz.appendChild(vizDonut(anomalyCount, todoMax, '#6B0B0C', num(anomalyCount), '待查异常'));
-    todo.body.appendChild(todoViz);
-    pending.slice(0, 2).forEach((c) => {
-      const row = el('button', 'dash-list-row');
-      row.type = 'button';
-      row.innerHTML = `<div class="dash-list-main">
-          <div class="dash-list-name">待审批：${esc(c.name)}</div>
-          <div class="dash-list-sub">${esc(c.campaign_id)} · 提交后等待总部处理</div>
-        </div><span class="dash-list-arrow">→</span>`;
-      row.addEventListener('click', () => {
-        S.approvalTab = 'pending';
-        setHash('approval');
-      });
-      todo.body.appendChild(row);
-    });
-    metrics.anomalies.slice(0, 2).forEach((a) => {
-      const row = el('button', 'dash-list-row');
-      row.type = 'button';
-      row.innerHTML = `<div class="dash-list-main">
-          <div class="dash-list-name">${esc(a.label)}</div>
-          <div class="dash-list-sub mono">${esc(a.code)}</div>
-        </div><span class="chip chip-amber">待查</span><span class="dash-list-arrow">→</span>`;
-      row.addEventListener('click', () => {
-        S.records.result = a.type === 'send_failed' ? 'failed' : '';
-        S.records.mode = '';
-        S.records.campaignId = a.campaign_id || '';
-        setHash('records');
-      });
-      todo.body.appendChild(row);
-    });
-    if (!pending.length && !anomalyCount) {
-      const ok = el('div', 'notice green', '当前没有待审批活动或待查异常，链路运行正常。');
-      todo.body.appendChild(ok);
-    }
-    addMod({ key: 'todo', title: '待办与提醒', icon: DASH_ICONS.alert,
-      meta: `${num(pending.length + anomalyCount)} 项待处理`,
-      node: todo.root, home: bottom });
-    host.appendChild(bottom);
+    host.appendChild(chartCard);
 
     function drawTrend() {
       const labels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
@@ -879,21 +614,193 @@
         ? [{ labels, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }]
         : [
             { labels, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
-            { labels, data: metrics.trend.map((x) => x.claimed), color: '#D9A9A5' },
             { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: S.ov.focus === 'trend' ? 420 : 280 });
+      lineChart(canvas, series, { height: 240 });
     }
     requestAnimationFrame(drawTrend);
 
-    // 筛选/语言切换会重建页面：恢复此前的聚焦模块（无动画，避免闪烁）
-    if (S.ov.focus) {
-      const keep = S.ov.focus;
-      S.ov.focus = null;
-      focusTo(keep, true);
+    /* ---------- 模块 4：券种核销率横向条形图（纯 HTML/CSS） ---------- */
+    const couponPanel = panel(t('ov.coupon.bar'), t('ov.coupon.bar.sub'), DASH_ICONS.ticket);
+    const rateRows = Object.values(metrics.byType)
+      .filter((x) => x.issued > 0)
+      .sort((a, b) => (b.redeem_rate - a.redeem_rate) || (b.used - a.used));
+    const maxRate = rateRows.reduce((m, x) => Math.max(m, x.redeem_rate), 0);
+    if (!rateRows.length) {
+      couponPanel.body.appendChild(el('div', 'empty', esc(t('ov.coupon.empty'))));
+    } else {
+      rateRows.forEach((x) => {
+        const width = maxRate > 0 ? Math.max(2, (x.redeem_rate / maxRate) * 100) : 0;
+        const b = el('button', 'rate-row');
+        b.type = 'button';
+        b.innerHTML = `<span class="rate-name">${esc(x.name)}<small>${esc(x.discount_label)}</small></span>
+          <span class="rate-track"><i class="rate-fill" style="width:${width.toFixed(1)}%"></i></span>
+          <b class="rate-val">${esc(pct(x.redeem_rate))}</b>`;
+        b.title = `${x.name} · ${t('ov.coupon.picked', { name: x.name })}`;
+        b.addEventListener('click', () => {
+          S.ov.couponTypes = [x.key];
+          render();
+          toast(t('ov.coupon.picked', { name: x.name }), 'ok');
+        });
+        couponPanel.body.appendChild(b);
+      });
     }
+    host.appendChild(couponPanel.root);
+
+    /* ---------- 模块 5：核销时段热力图 ---------- */
+    const heat = el('section', 'dash-panel heat-panel');
+    const heatHead = el('div', 'dash-panel-head heat-head');
+    heatHead.innerHTML = `<div class="dash-panel-icon">${DASH_ICONS.chart}</div>
+      <div><div class="dash-panel-title">${esc(t('ov.heat.title'))}</div>
+      <div class="dash-panel-sub">${esc(t('ov.heat.sub'))}</div></div>`;
+    const seg = el('div', 'seg heat-seg');
+    const segButtons = {};
+    ['week', 'month', 'custom'].forEach((v) => {
+      const b = el('button', S.ov.heatView === v ? 'on' : '', esc(t('ov.heat.' + v)));
+      b.type = 'button';
+      b.dataset.view = v;
+      b.addEventListener('click', () => {
+        if (S.ov.heatView === v) return;
+        S.ov.heatView = v;
+        Object.keys(segButtons).forEach((k) => segButtons[k].classList.toggle('on', k === v));
+        drawHeat();
+      });
+      segButtons[v] = b;
+      seg.appendChild(b);
+    });
+    heatHead.appendChild(seg);
+    heat.appendChild(heatHead);
+    const heatBody = el('div', 'dash-panel-body heat-body');
+    heat.appendChild(heatBody);
+    host.appendChild(heat);
+
+    function drawHeat() {
+      heatBody.innerHTML = '';
+      let rows = [];
+      let aggregated = false;
+
+      if (S.ov.heatView === 'week') {
+        // 本周：以数据锚点所在周的周一为起点，固定 7 行（周一至周日）
+        const monday = mondayOf(C.DATA_TODAY);
+        rows = Array.from({ length: 7 }, (_, i) => {
+          const d = E.utils.addDays(monday, i);
+          return { from: d, to: d, label: `${t(HEAT_WEEKDAYS[i])} ${d.slice(5).replace('-', '/')}` };
+        });
+      } else if (S.ov.heatView === 'month') {
+        // 本月：按自然周聚合成固定的第 1~5 周
+        const ym = C.DATA_TODAY.slice(0, 7);
+        const first = `${ym}-01`;
+        const monthEnd = E.utils.iso(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0));
+        const firstMon = mondayOf(first);
+        rows = Array.from({ length: 5 }, (_, i) => {
+          const ws = E.utils.addDays(firstMon, i * 7);
+          const we = E.utils.addDays(ws, 6);
+          const s = ws < first ? first : ws;
+          const e = we > monthEnd ? monthEnd : we;
+          return { from: s, to: e, label: t('ov.heat.weekN', { n: i + 1 }) };
+        });
+      } else {
+        // 自定义：直接读取顶部日期筛选器；超过 14 天自动按周聚合
+        const from = S.ov.dateFrom;
+        const to = S.ov.dateTo;
+        const days = Math.max(0, Math.round((E.utils.d2(to) - E.utils.d2(from)) / 86400000) + 1);
+        if (days <= 14) {
+          for (let i = 0; i < days; i++) {
+            const d = E.utils.addDays(from, i);
+            rows.push({ from: d, to: d, label: d.slice(5).replace('-', '/') });
+          }
+        } else {
+          aggregated = true;
+          const mondays = new Set();
+          for (let i = 0; i < days; i++) mondays.add(mondayOf(E.utils.addDays(from, i)));
+          Array.from(mondays).sort().forEach((m) => {
+            const end = E.utils.addDays(m, 6);
+            const s = m < from ? from : m;
+            const e = end > to ? to : end;
+            rows.push({ from: s, to: e, label: `${s.slice(5).replace('-', '/')}–${e.slice(5).replace('-', '/')}` });
+          });
+        }
+      }
+
+      const rowByDate = new Map();
+      rows.forEach((r, i) => {
+        let d = r.from;
+        let guard = 0;
+        while (d <= r.to && guard++ < 400) { rowByDate.set(d, i); d = E.utils.addDays(d, 1); }
+      });
+
+      // 与 E.computeMetrics 相同的券种 / 活动 / 门店口径，再取 DB.redemption 的核销时刻
+      const typeSet = S.ov.couponTypes && S.ov.couponTypes.length ? new Set(S.ov.couponTypes) : null;
+      const campSet = S.ov.campaignIds && S.ov.campaignIds.length ? new Set(S.ov.campaignIds) : null;
+      const scopeStore = store ? myStore : S.ov.storeFilter;
+      const eligible = new Set();
+      DB.couponInstance.forEach((cp) => {
+        if (typeSet && !typeSet.has(cp.coupon_type)) return;
+        if (campSet && !campSet.has(cp.campaign_id)) return;
+        if (scopeStore && scopeStore !== '__all') {
+          const camp = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
+          if (!E.campaignCoversStore(camp, scopeStore)) return;
+        }
+        eligible.add(cp.coupon_id);
+      });
+
+      const grid = rows.map(() => HEAT_SLOTS.map(() => 0));
+      let total = 0;
+      DB.redemption.forEach((rd) => {
+        if (!eligible.has(rd.coupon_id)) return;
+        if (scopeStore && scopeStore !== '__all' && rd.store_id !== scopeStore) return;
+        const ts = rd.redeemed_at || '';
+        const row = rowByDate.get(ts.slice(0, 10));
+        if (row == null) return;
+        const hour = Number(ts.slice(11, 13));
+        const slot = HEAT_SLOTS.findIndex((s) => hour >= s.from && hour < s.to);
+        if (slot < 0) return;
+        grid[row][slot]++;
+        total++;
+      });
+
+      const max = grid.reduce((m, r) => Math.max(m, ...r), 0);
+      const sorted = [];
+      grid.forEach((r, ri) => r.forEach((v, si) => { if (v > 0) sorted.push({ ri, si, v }); }));
+      sorted.sort((a, b) => b.v - a.v);
+      const peaks = new Set(sorted.slice(0, 2).map((p) => `${p.ri}:${p.si}`));
+
+      const table = el('div', 'heat-table');
+      const headRow = el('div', 'heat-row');
+      headRow.appendChild(el('div', 'heat-row-label heat-corner', esc(t('ov.heat.date'))));
+      const slotHead = el('div', 'heat-grid');
+      HEAT_SLOTS.forEach((s) => slotHead.appendChild(el('div', 'heat-slot', esc(t(s.labelKey)))));
+      headRow.appendChild(slotHead);
+      table.appendChild(headRow);
+
+      rows.forEach((r, i) => {
+        const rowEl = el('div', 'heat-row');
+        rowEl.appendChild(el('div', 'heat-row-label', esc(r.label)));
+        const cells = el('div', 'heat-grid');
+        HEAT_SLOTS.forEach((s, j) => {
+          const v = grid[i][j];
+          const ratio = max > 0 ? Math.sqrt(v / max) : 0;
+          const cell = el('div', 'heat-cell' + (peaks.has(`${i}:${j}`) ? ' is-peak' : '') + (ratio > .55 ? ' on-dark' : ''));
+          cell.style.background = heatColor(ratio);
+          cell.textContent = String(v);
+          cell.title = `${r.label} · ${t(s.labelKey)}：${v} ${t('ov.heat.unit')}`;
+          cells.appendChild(cell);
+        });
+        rowEl.appendChild(cells);
+        table.appendChild(rowEl);
+      });
+
+      if (!total) heatBody.appendChild(el('div', 'notice', esc(t('ov.heat.empty'))));
+      heatBody.appendChild(table);
+      const foot = el('div', 'heat-foot');
+      foot.innerHTML = `<div class="heat-legend"><span>${esc(t('ov.heat.less'))}</span><i class="heat-legend-bar"></i><span>${esc(t('ov.heat.more'))}</span></div>
+        <div class="heat-summary"><b>${num(total)}</b> ${esc(t('ov.heat.unit'))}${aggregated ? ' · ' + esc(t('ov.heat.aggregated')) : ''}</div>`;
+      heatBody.appendChild(foot);
+    }
+    drawHeat();
+
+    // 筛选后无数据时的空态提示保留
     if (!metrics.issued && !metrics.used) {
-      // 空态要说清「为什么空」并给下一步，而不是一句灰字
       const em = el('div', 'empty');
       em.innerHTML = `<div class="empty-title">当前筛选范围内没有数据</div>`;
       const acts = el('div', 'empty-actions');
@@ -2829,10 +2736,5 @@
   }
 
   /* ------------------------------------------------------------ 启动 */
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || S.page !== 'overview' || !S.ov.focus) return;
-    const back = $('#content .focus-back');
-    if (back) back.click();
-  });
   document.addEventListener('DOMContentLoaded', boot);
 })(window);
