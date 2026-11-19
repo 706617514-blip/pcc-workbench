@@ -77,6 +77,7 @@
     loggedIn: false,
     accountKey: null,
     locale: 'zh-Hans',
+    cdEscapeBack: null,   // 活动详情下钻：Esc 先返回「发放结果」再关闭弹窗
     // 看板筛选（PRD 5.1）
     ov: {
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
@@ -646,6 +647,129 @@
     const m = new Map();
     rows.forEach((r) => { const k = keyFn(r); m.set(k, (m.get(k) || 0) + (valFn ? valFn(r) : 1)); });
     return Array.from(m, ([k, v]) => ({ name: k, value: v }));
+  }
+
+  /** 活动详情下钻：把券实例按时间聚合成日序列（超过 62 天自动按月） */
+  function drillDaily(rows, tsKey) {
+    const m = new Map();
+    rows.forEach((x) => {
+      const d = (x[tsKey] || '').slice(0, 10);
+      if (d) m.set(d, (m.get(d) || 0) + 1);
+    });
+    let keys = Array.from(m.keys()).sort();
+    if (keys.length > 62) {
+      const mm = new Map();
+      keys.forEach((d) => { const k = d.slice(0, 7); mm.set(k, (mm.get(k) || 0) + m.get(d)); });
+      keys = Array.from(mm.keys()).sort();
+      return { labels: keys.map((k) => k.slice(2)), data: keys.map((k) => mm.get(k)) };
+    }
+    return { labels: keys.map((d) => d.slice(5)), data: keys.map((d) => m.get(d)) };
+  }
+
+  /** 活动详情下钻：按门店聚合的横向条（券实例 store_id 为空时归入「全港/未指定」） */
+  function drillStoreBars(rows, valFn) {
+    const m = new Map();
+    rows.forEach((x) => {
+      const sid = x.store_id || '__all';
+      m.set(sid, (m.get(sid) || 0) + (valFn ? valFn(x) : 1));
+    });
+    return Array.from(m, ([sid, v]) => ({
+      name: sid === '__all' ? '全港/未指定' : E.utils.storeLabel(sid),
+      value: v, text: num(v),
+    })).sort((a, b) => b.value - a.value).slice(0, 12);
+  }
+
+  /**
+   * 活动详情「发放结果」四张卡的下钻内容：统计 + 趋势 + 门店分布 + 最近记录。
+   * 全程只替换弹窗 body，不跳页、不改 hash，返回时原界面原样恢复。
+   */
+  function buildCampaignDrill(key, ctx) {
+    const { issued, claimedList, usedList, c } = ctx;
+    const wrap = el('div', 'cd-drill');
+
+    const bar = el('div', 'cd-drill-bar');
+    const back = el('button', 'cd-back', '← ' + t('cd.back'));
+    back.type = 'button';
+    bar.appendChild(back);
+    bar.appendChild(el('span', 'cd-drill-title', t('cd.t.' + key)));
+    wrap.appendChild(bar);
+
+    const statusText = (cp) => E.STATUS.coupon[cp.status] || cp.status || '—';
+    const memberOf = (cp) => E.maskPhone ? E.maskPhone(cp.customer_id || '') : (cp.customer_id || '—');
+
+    if (key === 'issued') {
+      wrap.appendChild(detailStats([
+        { label: t('ov.detail.issued'), value: num(issued.length) },
+        { label: t('ov.detail.claimed'), value: num(claimedList.length) },
+        { label: t('ov.detail.used'), value: num(usedList.length) },
+      ]));
+      const dd = drillDaily(issued, 'issued_at');
+      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#6B0B0C' }], 170)));
+      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(issued))));
+      const recent = issued.slice().sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at))).slice(0, 8);
+      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => ({
+        title: `${t('cd.member')} ${esc(memberOf(cp))} · ${esc(cp.coupon_id)}`,
+        meta: `${t('cd.time')} ${esc(cp.issued_at || '—')}`,
+        tag: statusText(cp),
+      })), t('cd.noRec'))));
+    } else if (key === 'claimed') {
+      const rate = issued.length ? claimedList.length / issued.length : 0;
+      wrap.appendChild(detailStats([
+        { label: t('ov.detail.claimed'), value: num(claimedList.length) },
+        { label: t('ov.detail.rate'), value: pct(rate) },
+        { label: t('ov.detail.used'), value: num(usedList.length) },
+      ]));
+      const dd = drillDaily(claimedList, 'claimed_at');
+      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#BA7517' }], 170)));
+      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(claimedList))));
+      const recent = claimedList.slice().sort((a, b) => String(b.claimed_at).localeCompare(String(a.claimed_at))).slice(0, 8);
+      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => ({
+        title: `${t('cd.member')} ${esc(memberOf(cp))} · ${esc(cp.coupon_id)}`,
+        meta: `${t('cd.time')} ${esc(cp.claimed_at || '—')}`,
+        tag: statusText(cp),
+      })), t('cd.noRec'))));
+    } else if (key === 'used') {
+      const redByCid = new Map(DB.redemption.map((r) => [r.coupon_id, r]));
+      const paid = usedList.reduce((s, cp) => s + (Number((redByCid.get(cp.coupon_id) || {}).paid_amount) || 0), 0);
+      const aov = usedList.length ? paid / usedList.length : 0;
+      wrap.appendChild(detailStats([
+        { label: t('ov.detail.used'), value: num(usedList.length) },
+        { label: t('ov.detail.total'), value: money(paid) },
+        { label: t('ov.detail.aov'), value: money(aov) },
+      ]));
+      const dd = drillDaily(usedList, 'redeemed_at');
+      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#1D9E75' }], 170)));
+      const redRows = usedList.map((cp) => redByCid.get(cp.coupon_id)).filter(Boolean);
+      wrap.appendChild(detailSection(t('cd.dist'), detailBars(drillStoreBars(redRows.length ? redRows : usedList))));
+      const recent = usedList.slice().sort((a, b) => String(b.redeemed_at).localeCompare(String(a.redeemed_at))).slice(0, 8);
+      wrap.appendChild(detailSection(t('cd.recent'), detailList(recent.map((cp) => {
+        const r = redByCid.get(cp.coupon_id);
+        return {
+          title: `${t('cd.member')} ${esc(memberOf(cp))} · ${r ? esc(E.utils.storeLabel(r.store_id)) : esc(E.utils.storeLabel(cp.store_id))}`,
+          meta: `${t('cd.time')} ${esc(cp.redeemed_at || '—')} · ${t('cd.paid')} ${money((r || {}).paid_amount || 0)}`,
+          tag: statusText(cp),
+        };
+      }), t('cd.noRec'))));
+    } else if (key === 'rate') {
+      const claimRate = issued.length ? claimedList.length / issued.length : 0;
+      const redeemRate = issued.length ? usedList.length / issued.length : 0;
+      const funnel = [
+        { name: t('ov.detail.issued'), value: issued.length, text: `${num(issued.length)} · 100%` },
+        { name: t('ov.detail.claimed'), value: claimedList.length, text: `${num(claimedList.length)} · ${pct(claimRate)}` },
+        { name: t('ov.detail.used'), value: usedList.length, text: `${num(usedList.length)} · ${pct(redeemRate)}` },
+      ];
+      wrap.appendChild(detailStats([
+        { label: t('ov.detail.issued'), value: num(issued.length) },
+        { label: t('ov.detail.claimed'), value: pct(claimRate) },
+        { label: t('ov.detail.used'), value: pct(redeemRate) },
+      ]));
+      wrap.appendChild(detailSection(t('mg.scope'), detailBars(funnel)));
+      const dd = drillDaily(usedList, 'redeemed_at');
+      if (dd.data.length) wrap.appendChild(detailSection(t('cd.trend'), detailChart('', [{ labels: dd.labels, data: dd.data, color: '#6B0B0C' }], 170)));
+      const byStore = drillStoreBars(usedList);
+      wrap.appendChild(detailSection(t('cd.dist'), detailBars(byStore)));
+    }
+    return wrap;
   }
 
   function renderOverview(host) {
@@ -2208,23 +2332,28 @@
     const store = isStore();
     const ct = E.COUPON_TYPES[c.coupon_type];
     const issued = DB.couponInstance.filter((x) => x.campaign_id === c.campaign_id);
-    const claimed = issued.filter((x) => x.claimed_at).length;
-    const used = issued.filter((x) => x.redeemed_at).length;
+    const claimedList = issued.filter((x) => x.claimed_at);
+    const usedList = issued.filter((x) => x.redeemed_at);
+    const claimed = claimedList.length;
+    const used = usedList.length;
     const storeName = E.utils.storeLabel(acc.scope_id || c.store_id || '');
 
     const resultBlock = store
       ? `<div class="notice grey" style="margin-top:20px">${esc(t('rule.claim_redeem', { store: storeName }))}</div>`
       : `<div style="margin-top:20px">
-          <div style="font-size:15px;font-weight:700;margin-bottom:10px">发放结果</div>
-          <div class="metrics metrics-4" style="margin-bottom:0">
-            <div class="metric" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">发放</div><div class="metric-value small">${esc(num(issued.length))}</div></div>
-            <div class="metric" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">领取</div><div class="metric-value small">${esc(num(claimed))}</div></div>
-            <div class="metric" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">核销</div><div class="metric-value small">${esc(num(used))}</div></div>
-            <div class="metric" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">核销率</div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></div>
+          <div class="cd-result-head">
+            <div style="font-size:15px;font-weight:700">发放结果</div>
+            <span class="cd-hint">${esc(t('cd.hint'))}</span>
+          </div>
+          <div class="metrics metrics-4 cd-metrics" style="margin-bottom:0">
+            <button type="button" class="metric cd-metric" data-cd="issued" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(issued.length))}</div></button>
+            <button type="button" class="metric cd-metric" data-cd="claimed" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">领取 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(claimed))}</div></button>
+            <button type="button" class="metric cd-metric" data-cd="used" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">核销 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(used))}</div></button>
+            <button type="button" class="metric cd-metric" data-cd="rate" style="min-height:auto;padding:14px 16px">
+              <div class="metric-label">核销率 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></button>
           </div>
         </div>`;
     const ruleLines = ct.rules.slice();
@@ -2291,7 +2420,27 @@
     close.type = 'button';
     foot.appendChild(close);
     const mo = modal({ title: c.name, subtitle: `${c.campaign_id} · ${E.scopeLabelOf(c)}`, body, footer: foot });
+    const baseClose = mo.close;
+    mo.close = () => { S.cdEscapeBack = null; baseClose(); };
     close.addEventListener('click', mo.close);
+
+    // 「发放结果」四张卡：点击后在弹窗内原位下钻，不跳页、不改 hash；
+    // 返回按钮 / Esc 先退回结果卡片，再按 Esc 才关闭弹窗，绝不会跳走后回不来。
+    const drillCtx = { c, issued, claimedList, usedList };
+    const backToResult = () => {
+      S.cdEscapeBack = null;
+      mo.body.replaceChildren(body);
+      mo.body.scrollTop = 0;
+    };
+    body.querySelectorAll('.cd-metric').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const detail = buildCampaignDrill(btn.dataset.cd, drillCtx);
+        detail.querySelector('.cd-back').addEventListener('click', backToResult);
+        S.cdEscapeBack = backToResult;
+        mo.body.replaceChildren(detail);
+        mo.body.scrollTop = 0;
+      });
+    });
 
     // 活动详情 → 对应角色的审批页；总部额外提供发送记录直达
     const goAp = el('button', 'btn btn-ghost', store ? t('nav.approval.store') : '查看审批记录');
@@ -3553,6 +3702,14 @@
   }
 
   /* ------------------------------------------------------------ 启动 */
+  // 捕获阶段先拦 Esc：活动详情下钻时先退回「发放结果」，不触发 UI 的关闭弹窗
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && S.cdEscapeBack) {
+      e.preventDefault();
+      e.stopPropagation();
+      S.cdEscapeBack();
+    }
+  }, true);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || S.page !== 'overview' || !S.ov.focus) return;
     const back = $('#content .focus-back');

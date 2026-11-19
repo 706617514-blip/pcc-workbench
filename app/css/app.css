@@ -2040,7 +2040,51 @@ body { padding: 30px; }
 /* 热力格：比参考图更亮的玻璃高光，数字保持深棕 */
 .heat-cell { border-color: rgba(255, 255, 255, .9); }
 
+/* ===== 活动详情「发放结果」四卡 → 弹窗内下钻 ===== */
+.cd-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.cd-hint { font-size: 12px; color: var(--ink-4); }
+.cd-metric {
+  text-align: left; cursor: pointer; font: inherit; color: inherit;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  position: relative;
+}
+.cd-metric:hover {
+  transform: translateY(-2px);
+  border-color: var(--pcc-red);
+  box-shadow: 0 10px 26px rgba(107, 11, 12, .16), inset 0 1px 0 rgba(255,255,255,.75);
+}
+.cd-metric:active { transform: translateY(0); }
+.cd-metric:focus-visible { outline: 2px solid var(--pcc-red); outline-offset: 2px; }
+.cd-go {
+  position: absolute; top: 10px; right: 12px; font-size: 14px;
+  color: var(--pcc-red); opacity: 0; transform: translate(-3px, 3px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.cd-metric:hover .cd-go, .cd-metric:focus-visible .cd-go { opacity: 1; transform: none; }
+
+.cd-drill { animation: cdIn .22s ease both; }
+@keyframes cdIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.cd-drill-bar {
+  display: flex; align-items: center; gap: 14px;
+  padding-bottom: 12px; margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.cd-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: rgba(255,255,255,.6);
+  color: var(--pcc-red); font-weight: 600; font-size: 13px;
+  padding: 7px 13px; border-radius: 10px; cursor: pointer;
+  transition: background .16s ease, border-color .16s ease;
+}
+.cd-back:hover { background: #fff; border-color: var(--pcc-red); }
+.cd-back:focus-visible { outline: 2px solid var(--pcc-red); outline-offset: 2px; }
+.cd-drill-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.cd-drill .detail-section { margin-bottom: 18px; }
+.cd-drill .detail-chart { min-height: 170px; }
+
 @media (max-width: 760px) {
   .page-title { font-size: 26px !important; }
   .trend-insight { padding: 2px 14px 10px; }
+  .cd-metrics.metrics-4 { grid-template-columns: repeat(2, 1fr); }
+  .cd-hint { display: none; }
 }
