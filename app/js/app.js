@@ -81,6 +81,7 @@
     ov: {
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
       storeFilter: null, activityFilter: null, focus: null, heatView: 'week',
+      storeMetric: 'used', drillStore: null,
     },
     // 活动创建页筛选
     create: {
@@ -630,6 +631,10 @@
     return w;
   }
 
+  function typeNameOf(r) {
+    return (E.COUPON_TYPES[r.coupon && r.coupon.coupon_type] || {}).name || '其他';
+  }
+
   function groupSum(rows, keyFn, valFn) {
     const m = new Map();
     rows.forEach((r) => { const k = keyFn(r); m.set(k, (m.get(k) || 0) + (valFn ? valFn(r) : 1)); });
@@ -722,13 +727,17 @@
       <span class="focus-crumb"></span><span class="focus-tip">${esc(t('ov.focus.tip'))}</span>`;
     const normalFlow = el('div', 'dash-normal');
     const kpiRow = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
-    const chartCol = el('div', 'dash-chart-home');
+    const topGrid = el('div', 'dash-chart-home' + (store ? ' is-solo' : ''));
+    const trendCol = el('div', 'dash-top-col');
+    const storeCol = el('div', 'dash-top-col');
+    topGrid.appendChild(trendCol);
+    if (!store) topGrid.appendChild(storeCol);
     const lower = el('div', 'dash-lower');
     const couponCol = el('div', 'dash-lower-col');
     const heatCol = el('div', 'dash-lower-col');
     lower.appendChild(couponCol); lower.appendChild(heatCol);
     normalFlow.appendChild(kpiRow);
-    normalFlow.appendChild(chartCol);
+    normalFlow.appendChild(topGrid);
     normalFlow.appendChild(lower);
     const stage = el('div', 'dash-stage');
     const strip = el('div', 'dash-thumbstrip');
@@ -820,6 +829,34 @@
     const metrics = E.computeMetrics(S.ov, acc);
     S.lastMetrics = metrics;
     const scoped = scopedRedemptions(acc, store);
+    // 门店维度聚合：供门店对比卡片与单店下钻共用，与核销 KPI 完全同源
+    const storeStats = (() => {
+      const map = new Map();
+      scoped.forEach((rd) => {
+        const sid = rd.store_id || '未知门店';
+        let v = map.get(sid);
+        if (!v) {
+          const meta = DB.stores.find((x) => x.store_id === sid) || {};
+          v = { sid, name: E.utils.storeLabel(sid), district: meta.district || '',
+                count: 0, paid: 0, days: new Set(), daily: new Map(), types: new Map(), slots: new Map() };
+          map.set(sid, v);
+        }
+        const day = (rd.redeemed_at || '').slice(0, 10);
+        const paid = Number(rd.paid_amount) || 0;
+        v.count++; v.paid += paid;
+        if (day) { v.days.add(day); v.daily.set(day, (v.daily.get(day) || 0) + 1); }
+        const tn = typeNameOf(rd); v.types.set(tn, (v.types.get(tn) || 0) + 1);
+        const hour = Number((rd.redeemed_at || '').slice(11, 13));
+        const slot = HEAT_SLOTS.find((x) => hour >= x.from && hour < x.to);
+        if (slot) { const l = t(slot.labelKey); v.slots.set(l, (v.slots.get(l) || 0) + 1); }
+      });
+      const all = Array.from(map.values());
+      const totalCount = all.reduce((a, v) => a + v.count, 0) || 1;
+      const totalPaid = all.reduce((a, v) => a + v.paid, 0) || 1;
+      return all.map((v) => Object.assign({}, v, { share: v.count / totalCount, paidShare: v.paid / totalPaid }));
+    })();
+    const storeRank = (metric) => storeStats.slice().sort((a, b) =>
+      (metric === 'paid' ? b.paid - a.paid : b.count - a.count) || b.count - a.count);
     const scopeLabel = store ? E.utils.storeLabel(myStore)
       : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
@@ -843,7 +880,7 @@
     function kpiBlocks(key) {
       const blocks = [];
       const dates = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
-      const typeName = (r) => (E.COUPON_TYPES[r.coupon && r.coupon.coupon_type] || {}).name || '其他';
+      const typeName = typeNameOf;
       const typeIssued = Object.values(metrics.byType).filter((x) => x.issued > 0)
         .map((x) => ({ name: x.name, sub: x.discount_label, value: x.issued, text: num(x.issued), key: x.key }))
         .sort((a, b) => b.value - a.value);
@@ -913,7 +950,10 @@
         blocks.push(detailChart(t('ov.detail.dayUsed'),
           [{ labels: dates, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }], 200));
         blocks.push(detailSection(t('ov.detail.typeRedeem'), detailBars(typeRedeem, pickCoupon), t('ov.detail.clickHint')));
-        if (!store) blocks.push(detailSection(t('ov.detail.storeUsed'), detailBars(usedByStore)));
+        if (!store) blocks.push(detailSection(t('ov.detail.storeUsed'), detailBars(usedByStore, (r) => {
+          const v = storeStats.find((x) => x.name === r.name);
+          if (v) openStoreDetail(v.sid);
+        }), t('ov.store.rankHint')));
       } else if (key === 'paid') {
         blocks.push(detailStats([
           { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
@@ -925,7 +965,10 @@
           { labels: paidByDay.map((x) => x.name), data: paidByDay.map((x) => x.value), color: '#6B0B0C' },
         ], 200));
         blocks.push(detailSection(t('ov.detail.typePaid'), detailBars(paidByType)));
-        if (!store) blocks.push(detailSection(t('ov.detail.storePaid'), detailBars(paidByStore)));
+        if (!store) blocks.push(detailSection(t('ov.detail.storePaid'), detailBars(paidByStore, (r) => {
+          const v = storeStats.find((x) => x.name === r.name);
+          if (v) openStoreDetail(v.sid);
+        }), t('ov.store.rankHint')));
       } else if (key === 'used') {
         blocks.push(detailStats([
           { label: t('ov.detail.used'), value: num(metrics.used) },
@@ -1017,7 +1060,7 @@
     addMod({
       key: 'trend', title: t(store ? 'ov.trend.store' : 'ov.trend.simple'),
       meta: `${metrics.trend.length} 天`, icon: DASH_ICONS.chart,
-      node: chartCard, home: chartCol,
+      node: chartCard, home: trendCol,
     });
 
     function drawTrend() {
@@ -1031,6 +1074,150 @@
       lineChart(canvas, series, { height: S.ov.focus === 'trend' ? 420 : 240 });
     }
     requestAnimationFrame(drawTrend);
+
+    /* ---------- 模块 3.5：门店对比（核销数 / 实付，TOP5） ---------- */
+    let storeDetailBuild = null;
+    function openStoreDetail(sid) {
+      if (S.ov.focus !== 'stores') focusTo('stores');
+      if (storeDetailBuild) storeDetailBuild(sid);
+    }
+
+    if (!store) {
+      const storePanel = panel(t('ov.store.title'), t('ov.store.sub'), DASH_ICONS.summary);
+      const storeHead = storePanel.root.querySelector('.dash-panel-head');
+      const storeSeg = el('div', 'seg store-seg');
+      const storeSegBtns = {};
+      [['used', 'ov.store.metric.used'], ['paid', 'ov.store.metric.paid']].forEach((entry) => {
+        const v = entry[0], key = entry[1];
+        const b = el('button', S.ov.storeMetric === v ? 'on' : '', esc(t(key)));
+        b.type = 'button'; b.dataset.metric = v;
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (S.ov.storeMetric === v) return;
+          S.ov.storeMetric = v;
+          Object.keys(storeSegBtns).forEach((k) => storeSegBtns[k].classList.toggle('on', k === v));
+          drawStoreBars();
+        });
+        storeSegBtns[v] = b; storeSeg.appendChild(b);
+      });
+      storeHead.appendChild(storeSeg);
+      const storeHost = el('div', 'store-host');
+      storeHost.appendChild(storePanel.root);
+      const storeDetailHost = el('div', 'store-detail-host');
+      storeHost.appendChild(storeDetailHost);
+      const storeBody = el('div', 'store-bars');
+      storePanel.body.appendChild(storeBody);
+      const storeMore = el('button', 'store-more', esc(t('ov.store.more')));
+      storeMore.type = 'button';
+      storeMore.addEventListener('click', (ev) => { ev.stopPropagation(); focusTo('stores'); });
+      storePanel.body.appendChild(storeMore);
+
+      function drawStoreBars() {
+        storeBody.innerHTML = '';
+        const rows = storeRank(S.ov.storeMetric).slice(0, 5);
+        if (!rows.length) {
+          storeBody.appendChild(el('div', 'empty', esc(t('ov.store.empty'))));
+          storeMore.style.display = 'none';
+          return;
+        }
+        storeMore.style.display = '';
+        const mv = S.ov.storeMetric === 'paid' ? 'paid' : 'count';
+        const max = rows.reduce((m, r) => Math.max(m, r[mv]), 0) || 1;
+        rows.forEach((r) => {
+          const b = el('button', 'rate-row store-row');
+          b.type = 'button';
+          const w = Math.max(2, (r[mv] / max) * 100);
+          b.innerHTML = `<span class="rate-name">${esc(r.name)}<small>${esc(r.district || t('ov.store.hk'))} · ${esc(t('ov.store.metric.used'))} ${num(r.count)}</small></span>
+            <span class="rate-track"><i class="rate-fill" style="width:${w.toFixed(1)}%"></i></span>
+            <b class="rate-val">${esc(S.ov.storeMetric === 'paid' ? money(r.paid) : num(r.count))}</b>`;
+          b.addEventListener('click', (ev) => { ev.stopPropagation(); openStoreDetail(r.sid); });
+          storeBody.appendChild(b);
+        });
+      }
+      drawStoreBars();
+
+      addMod({
+        key: 'stores', title: t('ov.store.title'),
+        meta: `${t('ov.store.top')} ${Math.min(5, storeStats.length)} / ${storeStats.length}`,
+        icon: DASH_ICONS.summary, node: storeHost, home: storeCol,
+        detail: () => { if (!storeDetailBuild) storeDetailBuild = buildStoreDetail(); },
+      });
+
+      /** 门店对比详情：全部排名 + 点击任一门店展示该店下钻图表 */
+      function buildStoreDetail() {
+        const p = panel(t('ov.store.title'), t('ov.store.detail.sub'), DASH_ICONS.summary);
+        p.root.classList.add('store-detail-panel');
+        storeDetailHost.appendChild(p.root);
+        p.body.classList.add('detail-body', 'store-detail-body');
+
+        const top = storeRank(S.ov.storeMetric)[0];
+        p.body.appendChild(detailStats([
+          { label: t('ov.store.metric.used'), value: num(storeStats.reduce((a, v) => a + v.count, 0)) + ' ' + t('ov.heat.unit') },
+          { label: t('ov.store.metric.paid'), value: money(storeStats.reduce((a, v) => a + v.paid, 0)) },
+          { label: t('ov.store.count'), value: num(storeStats.length) },
+          { label: t('ov.store.topStore'), value: top ? top.name : '—' },
+        ]));
+
+        const rankSec = el('div', 'detail-section store-rank-section');
+        rankSec.appendChild(el('div', 'detail-section-head', esc(t('ov.store.rank') + ' · ' + t('ov.store.rankHint'))));
+        const rankList = el('div', 'detail-bars store-rank-list');
+        rankSec.appendChild(rankList);
+        p.body.appendChild(rankSec);
+
+        const drill = el('div', 'detail-section store-drill');
+        p.body.appendChild(drill);
+
+        function renderRank() {
+          rankList.innerHTML = '';
+          const rows = storeRank(S.ov.storeMetric);
+          if (!rows.length) { rankList.appendChild(el('div', 'empty', esc(t('ov.store.empty')))); return; }
+          const mv = S.ov.storeMetric === 'paid' ? 'paid' : 'count';
+          const max = rows.reduce((m, r) => Math.max(m, r[mv]), 0) || 1;
+          rows.forEach((r) => {
+            const b = el('button', 'detail-bar-row store-rank-row' + (S.ov.drillStore === r.sid ? ' selected' : ''));
+            b.type = 'button';
+            b.innerHTML = `<span class="db-name">${esc(r.name)}<small>${esc(r.district || t('ov.store.hk'))} · ${esc(t('ov.store.metric.used'))} ${num(r.count)} · ${esc(t('ov.store.metric.paid'))} ${money(r.paid)}</small></span>
+              <span class="db-track"><i style="width:${((r[mv] / max) * 100).toFixed(1)}%"></i></span>
+              <b>${esc(S.ov.storeMetric === 'paid' ? money(r.paid) : num(r.count))}</b>`;
+            b.addEventListener('click', (ev) => { ev.stopPropagation(); selectStore(r.sid); });
+            rankList.appendChild(b);
+          });
+        }
+
+        function renderDrill(v) {
+          drill.innerHTML = '';
+          drill.appendChild(el('div', 'detail-section-head', esc(t('ov.store.drill.title', { name: v.name }))));
+          drill.appendChild(detailStats([
+            { label: t('ov.store.metric.used'), value: num(v.count) + ' ' + t('ov.heat.unit') },
+            { label: t('ov.store.metric.paid'), value: money(v.paid) },
+            { label: t('ov.store.activeDays'), value: num(v.days.size) + ' ' + t('ov.store.days') },
+            { label: t('ov.store.share'), value: pct(v.share) },
+          ]));
+          const days = Array.from(v.daily.keys()).sort();
+          drill.appendChild(detailChart(t('ov.store.dailyUsed'),
+            [{ labels: days.map((d) => d.slice(5).replace('-', '/')), data: days.map((d) => v.daily.get(d)), color: '#6B0B0C' }], 200));
+          const types = Array.from(v.types, (kv) => ({ name: kv[0], value: kv[1], text: num(kv[1]) + ' ' + t('ov.heat.unit') }))
+            .sort((a, b) => b.value - a.value);
+          drill.appendChild(detailSection(t('ov.store.typeDist'), detailBars(types)));
+          const slots = Array.from(v.slots, (kv) => ({ name: kv[0], value: kv[1], text: num(kv[1]) + ' ' + t('ov.heat.unit') }))
+            .sort((a, b) => b.value - a.value);
+          drill.appendChild(detailSection(t('ov.store.slotDist'), detailBars(slots)));
+        }
+
+        function selectStore(sid) {
+          const v = storeStats.find((x) => x.sid === sid);
+          if (!v) return;
+          S.ov.drillStore = sid;
+          renderRank();
+          renderDrill(v);
+        }
+
+        renderRank();
+        const initial = storeStats.find((x) => x.sid === S.ov.drillStore) || storeRank(S.ov.storeMetric)[0];
+        if (initial) selectStore(initial.sid);
+        return selectStore;
+      }
+    }
 
     /* ---------- 模块 4：券种核销率横向条形图（纯 HTML/CSS） ---------- */
     const couponPanel = panel(t('ov.coupon.bar'), t('ov.coupon.bar.sub'), DASH_ICONS.ticket);
