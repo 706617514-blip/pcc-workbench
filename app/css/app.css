@@ -2219,3 +2219,19 @@ body { padding: 30px; }
   display: grid; place-items: center;
   background: var(--pcc-red); color: #fff; font-size: 12px; font-weight: 800;
 }
+
+/* ==========================================================================
+ * 总界面四图区域：尺寸自适应 + 指定边对齐
+ * - 四个图表区高度各自按筛选后的内容量决定，不再被 stretch 撑成等高；
+ * - 上方两区（趋势 / 门店对比）顶边对齐；
+ * - 下方两区（券种 / 热力图）底边对齐；
+ * - 仅作用于正常流；聚焦视图的放大尺寸与 FLIP 交互完全不受影响。
+ * ========================================================================== */
+.dash-normal .dash-chart-home { align-items: start; }
+.dash-normal .dash-lower { align-items: end; }
+.dash-normal .dash-module > .mod-full { height: auto; }
+.dash-normal .dash-module > .mod-full > .dash-panel,
+.dash-normal .dash-module > .mod-full > .chart-card { height: auto; }
+.dash-normal .store-host,
+.dash-normal .store-host > .dash-panel,
+.dash-normal .store-detail-host { height: auto; }
