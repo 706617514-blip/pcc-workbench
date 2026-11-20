@@ -1108,9 +1108,6 @@
       const typeRedeem = Object.values(metrics.byType).filter((x) => x.issued > 0)
         .map((x) => ({ name: x.name, sub: `已核销 ${num(x.used)} / 发放 ${num(x.issued)}`, value: x.redeem_rate, text: pct(x.redeem_rate), key: x.key }))
         .sort((a, b) => b.value - a.value);
-      const campIssued = metrics.byCampaign.filter((x) => x.issued > 0)
-        .map((x) => ({ name: x.name, sub: `${x.coupon_name} · ${x.scope_label}`, value: x.issued, text: num(x.issued) }))
-        .sort((a, b) => b.value - a.value).slice(0, 6);
       const paidByType = groupSum(scoped, typeName, (r) => r.paid_amount)
         .map((x) => ({ ...x, text: money(x.value) })).sort((a, b) => b.value - a.value);
       const usedByType = groupSum(scoped, typeName)
@@ -1144,8 +1141,8 @@
         ]));
         blocks.push(detailChart(t('ov.detail.dayIssued'),
           [{ labels: dates, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' }], 200));
-        blocks.push(detailSection(t('ov.detail.typeIssued'), detailBars(typeIssued, pickCoupon), t('ov.detail.clickHint')));
-        blocks.push(detailSection(t('ov.detail.campIssued'), detailBars(campIssued)));
+        // 统一发券 TOP6：券种即发券单位，按发放量由多到少，一行一券种，点击可筛选
+        blocks.push(detailSection(t('ov.detail.issueTop6'), detailBars(typeIssued.slice(0, 6), pickCoupon), t('ov.detail.clickHint')));
       } else if (key === 'claim') {
         blocks.push(detailStats([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
