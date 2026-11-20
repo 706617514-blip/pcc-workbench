@@ -2278,9 +2278,15 @@ body { padding: 30px; }
  * ========================================================================== */
 .detail-body > .detail-section.is-wide { grid-column: 1 / -1; }
 .detail-section.is-wide .detail-bars {
-  display: grid;
-  /* 桌面两列并排（每列约 600px，进度条更舒展）；窄屏自动回退单列 */
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-  gap: 8px 22px;
+  display: block; /* 覆盖基础 .detail-bars 的 flex，多列布局需块级容器 */
+  /* 按列填充：先由上到下填满左列（门店按核销数已降序），再填右列。
+     columns: 最多2列、每列至少500px，窄屏自动回退单列；行数随门店数自适应。 */
+  columns: 2 500px;
+  column-gap: 22px;
 }
-.detail-section.is-wide .detail-bar-row { min-width: 0; }
+.detail-section.is-wide .detail-bar-row {
+  min-width: 0;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin-bottom: 8px;
+}
