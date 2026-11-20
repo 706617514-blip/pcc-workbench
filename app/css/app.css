@@ -2150,3 +2150,72 @@ body { padding: 30px; }
   .cd-metrics.metrics-4 { grid-template-columns: repeat(2, 1fr); }
   .cd-hint, .cd-sec .cd-hint { display: none; }
 }
+
+/* ==========================================================================
+ * 区域密度修正（impeccable layout 评审）
+ * 目标：各页面不再因固定最小高度 / 固定列数而被迫留大片空白。
+ * 原则：只收紧“被动撑高”的尺寸；卡片配色、玻璃质感、圆角与交互不变。
+ * ========================================================================== */
+
+/* 1) 全局内容区：底部留白从 60px 收敛到 30px，短页面不再拖出空白。 */
+.content { padding-bottom: 30px; }
+
+/* 2) #root 自相矛盾的 min-height:100vh 让窗口被顶出视口；
+      统一由定高规则控制，登录页自身用 fixed 居中，不受影响。 */
+#root { min-height: 0 !important; }
+
+/* 3) KPI 卡：148px 的最小高度把内容少的卡（如异常 0 条）撑出空白。
+      改为 flex-start 的自然节奏，保留等高一排的观感。 */
+.metric, .metric.tone-lemon, .metric.tone-blue, .metric.tone-rose, .metric.tone-sand {
+  min-height: 112px;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+/* 4) 空态：60/46px 的上下留白在短列表页形成大片空白。 */
+.empty { padding: 26px 20px; }
+
+/* 5) 固定列数网格：末排不足一行时留空位，改为按内容宽度自适应。 */
+.check-cards { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.chart-insight { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.coupon-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.detail-stats { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+/* 6) 聚焦视图：520px 固定高度在 KPI / 信息型模块下留下大片空白；
+      随视口收敛，大屏仍接近原尺寸，小屏不空旷。 */
+.dash-board.is-focused .dash-stage > .dash-module > .mod-full > .dash-panel,
+.dash-board.is-focused .dash-stage > .dash-module > .mod-full > .chart-card,
+.dash-board.is-focused .dash-stage > .dash-module[data-kind="kpi"] > .mod-full,
+.dash-board.is-focused .dash-stage [data-mod="stores"] .store-detail-panel {
+  min-height: min(520px, 58vh);
+}
+
+/* 7) AI 浮窗：消息少时不再固定 620px 高度撑出空白；
+      内容多时仍可滚动并可拖动。 */
+.ai-drawer { height: auto; max-height: min(620px, calc(100vh - 48px)); min-height: 232px; }
+.ai-drawer.minimized { height: 58px; }
+
+/* 8) 详情/下钻：窄内容不强制占满两列。 */
+.store-detail-body { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.store-detail-body > .detail-stats { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+/* 9) 超短页面的收尾节奏：最后一个卡片与容器底部保持克制间距。 */
+#content > :last-child { margin-bottom: 0; }
+
+/* 10) 活动创建/提报：未筛选时把「会员预览」空卡改为三步引导，避免整卡空白。 */
+.preview-guide {
+  display: grid; gap: 10px; padding: 6px 24px 22px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.preview-guide-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 8px 12px; border-radius: 12px;
+  background: rgba(255, 255, 255, .55);
+  border: 1px solid rgba(255, 255, 255, .85);
+  font-size: 12.5px; line-height: 1.5; color: var(--ink-3);
+}
+.preview-guide-num {
+  flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--pcc-red); color: #fff; font-size: 12px; font-weight: 800;
+}

@@ -1902,8 +1902,12 @@
     prevCard.appendChild(pt);
 
     if (!S.create.applied) {
-      const em = el('div', 'empty', '请先在左侧设置并应用筛选条件。');
-      prevCard.appendChild(em);
+      const guide = el('div', 'preview-guide');
+      guide.innerHTML = `
+        <div class="preview-guide-row"><span class="preview-guide-num">1</span><span>在左侧设置筛选条件（门店、消费、到店频次）</span></div>
+        <div class="preview-guide-row"><span class="preview-guide-num">2</span><span>点击「应用筛选条件」计算结果人数</span></div>
+        <div class="preview-guide-row"><span class="preview-guide-num">3</span><span>查看下方会员明细，确认后再创建活动</span></div>`;
+      prevCard.appendChild(guide);
     } else {
       // 总部多选门店时，额外展示「覆盖门店」列，说明该会员命中哪几家所选门店
       const multiScope = !store && (S.create.result.scope_type === 'stores');
