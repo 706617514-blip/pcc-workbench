@@ -643,10 +643,19 @@
 
   function detailChart(title, series, height) {
     const box = el('div', 'detail-chart');
-    box.appendChild(el('div', 'detail-chart-title', esc(title)));
+    const titleEl = el('div', 'detail-chart-title', esc(title));
+    box.appendChild(titleEl);
     const c = el('canvas');
     box.appendChild(c);
-    requestAnimationFrame(() => lineChart(c, series, { height: height || 180 }));
+    requestAnimationFrame(() => {
+      // 在两列 grid 里卡片会被拉伸到与右侧等高，按内容区可用高度绘制，消除卡内留白；
+      // 传入 height 作为下限，保证未拉伸处（如门店下钻内的图表）保持原高度。
+      const cs = getComputedStyle(box);
+      const avail = box.clientHeight
+        - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+        - titleEl.offsetHeight;
+      lineChart(c, series, { height: Math.max(height || 180, Math.floor(avail)) });
+    });
     return box;
   }
 
