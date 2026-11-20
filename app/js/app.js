@@ -1403,6 +1403,17 @@
         const drill = el('div', 'detail-section store-drill');
         p.body.appendChild(drill);
 
+        // 排名列与下钻列齐平：以下钻实际渲染高度同步排名列表上限，列内滚动看全部门店。
+        // 双 rAF 等图表 canvas 绘完再量高；ResizeObserver 兜底捕获后续尺寸变化。
+        let syncRankHeight = () => {};
+        syncRankHeight = () => {
+          const head = rankSec.querySelector('.detail-section-head');
+          // 用 offsetHeight 而非 getBoundingClientRect：后者会被聚焦展开时的 scale 动画缩放，量到偏小值
+          const h = drill.offsetHeight - (head ? head.offsetHeight : 0);
+          if (h > 40) rankList.style.maxHeight = h + 'px';
+        };
+        if (window.ResizeObserver) new ResizeObserver(syncRankHeight).observe(drill);
+
         function renderRank() {
           rankList.innerHTML = '';
           const rows = storeRank(S.ov.storeMetric);
@@ -1438,6 +1449,8 @@
           const slots = Array.from(v.slots, (kv) => ({ name: kv[0], value: kv[1], text: num(kv[1]) + ' ' + t('ov.heat.unit') }))
             .sort((a, b) => b.value - a.value);
           drill.appendChild(detailSection(t('ov.store.slotDist'), detailBars(slots)));
+          // 图表 canvas 在 rAF 内绘制，等两帧后高度稳定再同步排名列高度
+          requestAnimationFrame(() => requestAnimationFrame(syncRankHeight));
         }
 
         function selectStore(sid) {

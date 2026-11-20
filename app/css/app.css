@@ -1728,7 +1728,8 @@ body { padding: 30px; }
 /* ---------- 门店对比详情：排名 + 单店下钻图表 ---------- */
 .store-detail-body { grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); align-items: start; }
 .store-detail-body > .detail-stats { grid-column: 1 / -1; }
-.store-rank-list { max-height: 520px; overflow-y: auto; }
+/* 排名列高度由 JS(ResizeObserver) 与右侧下钻列实际渲染高度同步：列内滚动，两列齐平无空白 */
+.store-rank-list { overflow-y: auto; }
 .store-rank-row { padding: 9px 8px; }
 .store-rank-row.selected {
   background: rgba(255, 248, 202, .85);
@@ -2195,9 +2196,12 @@ body { padding: 30px; }
 .ai-drawer { height: auto; max-height: min(620px, calc(100vh - 48px)); min-height: 232px; }
 .ai-drawer.minimized { height: 58px; }
 
-/* 8) 详情/下钻：窄内容不强制占满两列。 */
-.store-detail-body { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-.store-detail-body > .detail-stats { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+/* 8) 详情/下钻：门店对比固定为「左侧排名 + 右侧单店下钻」两列。
+ *    之前用 auto-fit minmax(320px) 会在宽屏拆成 3 列、第三列空置，排版错乱。
+ *    顶层统计跨满两列 4 等分；drill 内统计维持 2×2，避免被通用 auto-fit 压成竖排。 */
+.store-detail-body { grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); }
+.store-detail-body > .detail-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.store-drill .detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* 9) 超短页面的收尾节奏：最后一个卡片与容器底部保持克制间距。 */
 #content > :last-child { margin-bottom: 0; }
