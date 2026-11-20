@@ -1287,7 +1287,19 @@
             { labels, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
             { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
           ];
-      lineChart(canvas, series, { height: S.ov.focus === 'trend' ? 420 : 240 });
+      // 正常流：卡片被同行等高网格拉伸，按内容区可用高度绘制曲线，消除卡内留白；
+      // 聚焦态用固定更大高度，保证放大后曲线更舒展。
+      let height = 420;
+      if (S.ov.focus !== 'trend') {
+        const cs = getComputedStyle(chartCard);
+        const head = chartCard.querySelector('.chart-head');
+        const ins = chartCard.querySelector('.trend-insight');
+        const avail = chartCard.clientHeight
+          - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+          - (head ? head.offsetHeight : 0) - (ins ? ins.offsetHeight : 0);
+        height = Math.max(200, Math.floor(avail));
+      }
+      lineChart(canvas, series, { height });
     }
     requestAnimationFrame(drawTrend);
 

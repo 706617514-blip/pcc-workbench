@@ -2221,20 +2221,27 @@ body { padding: 30px; }
 }
 
 /* ==========================================================================
- * 总界面四图区域：尺寸自适应 + 指定边对齐
- * - 四个图表区高度各自按筛选后的内容量决定，不再被 stretch 撑成等高；
- * - 上方两区（趋势 / 门店对比）顶边对齐；
- * - 下方两区（券种 / 热力图）底边对齐；
+ * 总界面四图区域：标准 2×2 等高网格
+ * - 同一行两张卡片上下边都对齐（同行等高），高度由内容较多的一张决定；
+ * - 卡片内部内容自适应填充可用空间，不在卡片之间或列中间留下空白带；
  * - 仅作用于正常流；聚焦视图的放大尺寸与 FLIP 交互完全不受影响。
  * ========================================================================== */
-.dash-normal .dash-chart-home { align-items: start; }
-.dash-normal .dash-lower { align-items: end; }
-.dash-normal .dash-module > .mod-full { height: auto; }
+.dash-normal .dash-chart-home { align-items: stretch; }
+.dash-normal .dash-lower { align-items: stretch; }
+.dash-normal .dash-module > .mod-full { height: 100%; }
 .dash-normal .dash-module > .mod-full > .dash-panel,
-.dash-normal .dash-module > .mod-full > .chart-card { height: auto; }
+.dash-normal .dash-module > .mod-full > .chart-card { height: 100%; }
 .dash-normal .store-host,
 .dash-normal .store-host > .dash-panel,
-.dash-normal .store-detail-host { height: auto; }
+.dash-normal .store-detail-host { height: 100%; }
+
+/* 趋势卡：折线图高度由 JS 按卡片可用空间动态绘制（见 drawTrend），拉伸时不堆空白 */
+
+/* 券种卡：列表在拉伸后的卡片内均匀分布并填满，避免底部留大片空白 */
+.dash-normal [data-mod="coupon"] > .mod-full > .dash-panel { display: flex; flex-direction: column; }
+.dash-normal [data-mod="coupon"] > .mod-full > .dash-panel > .dash-panel-body {
+  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-evenly;
+}
 
 /* ==========================================================================
  * 核销时段热力图：详情视图（本周/本月快捷键 + 短时间筛选窗口）
@@ -2260,5 +2267,5 @@ body { padding: 30px; }
 .heat-detail-range-label { font-size: 12px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
 .heat-detail-range .control { flex: 1 1 260px; min-width: 220px; }
 .heat-detail-grid { min-width: 0; }
-/* 正常流：heat panel 现在嵌在 heat-host 内，保持高度自然、不被拉伸 */
-.dash-normal .heat-host > .heat-panel { height: auto; }
+/* 正常流：heat panel 嵌在 heat-host 内，随同行等高网格拉伸 */
+.dash-normal .heat-host > .heat-panel { height: 100%; }
