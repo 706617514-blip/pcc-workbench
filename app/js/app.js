@@ -81,7 +81,8 @@
     // 看板筛选（PRD 5.1）
     ov: {
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
-      storeFilter: null, activityFilter: null, focus: null, heatView: 'week',
+      storeFilter: null, activityFilter: null, focus: null,
+      heatDetail: { view: 'week', from: null, to: null },  // 热力图详情页：快捷区间 + 短时间筛选窗口
       storeMetric: 'used', drillStore: null,
     },
     // 活动创建页筛选
@@ -554,6 +555,44 @@
   function mondayOf(dateStr) {
     const d = E.utils.d2(dateStr);
     return E.utils.iso(new Date(d.getTime() - ((d.getDay() + 6) % 7) * 86400000));
+  }
+
+  /** 把区间裁剪到顶部日期筛选范围内，返回 null 表示完全不相交 */
+  function clampToFilter(s, e) {
+    const from = s < S.ov.dateFrom ? S.ov.dateFrom : s;
+    const to = e > S.ov.dateTo ? S.ov.dateTo : e;
+    return from > to ? null : { from, to };
+  }
+
+  /** 天数（含首尾） */
+  function daysInclusive(from, to) {
+    return Math.max(0, Math.round((E.utils.d2(to) - E.utils.d2(from)) / 86400000) + 1);
+  }
+
+  /** 逐日行：区间内每天一行 */
+  function heatDailyRows(from, to) {
+    const rows = [];
+    const n = daysInclusive(from, to);
+    for (let i = 0; i < n && rows.length < 400; i++) {
+      const d = E.utils.addDays(from, i);
+      const wd = HEAT_WEEKDAYS[(E.utils.d2(d).getDay() + 6) % 7];
+      rows.push({ from: d, to: d, label: `${t(wd)} ${d.slice(5).replace('-', '/')}` });
+    }
+    return rows;
+  }
+
+  /** 按周聚合行：区间内每个自然周一行 */
+  function heatWeeklyRows(from, to) {
+    const mondays = new Set();
+    const n = daysInclusive(from, to);
+    for (let i = 0; i < n && i < 400; i++) mondays.add(mondayOf(E.utils.addDays(from, i)));
+    let idx = 0;
+    return Array.from(mondays).sort().map((m) => {
+      const end = E.utils.addDays(m, 6);
+      const s = m < from ? from : m;
+      const e = end > to ? to : end;
+      return { from: s, to: e, label: t('ov.heat.weekN', { n: ++idx }) };
+    });
   }
 
   /** 与 computeMetrics 完全同口径的核销记录（含券种、门店、日期筛选） */
@@ -1427,88 +1466,30 @@
       icon: DASH_ICONS.ticket, node: couponPanel.root, home: couponCol,
     });
 
-    /* ---------- 模块 5：核销时段热力图（跟随顶部日期筛选） ---------- */
+    /* ---------- 模块 5：核销时段热力图 ----------
+     * 主视图：跟随顶部日期筛选；区间 ≥7 天只显示最近 7 天，不足 7 天按所选天数逐日显示。
+     * 详情页：本周 / 本月快捷键 + 短时间筛选窗口，自选区间查看核销时段分布。 */
+    const heatHost = el('div', 'heat-host');
     const heat = el('section', 'dash-panel heat-panel');
     const heatHead = el('div', 'dash-panel-head heat-head');
     heatHead.innerHTML = `<div class="dash-panel-icon">${DASH_ICONS.chart}</div>
       <div><div class="dash-panel-title">${esc(t('ov.heat.title'))}</div>
       <div class="dash-panel-sub">${esc(t('ov.heat.sub'))}</div></div>`;
-    const seg = el('div', 'seg heat-seg');
-    const segButtons = {};
-    ['week', 'month', 'custom'].forEach((v) => {
-      const b = el('button', S.ov.heatView === v ? 'on' : '', esc(t('ov.heat.' + v)));
-      b.type = 'button';
-      b.dataset.view = v;
-      b.addEventListener('click', () => {
-        if (S.ov.heatView === v) return;
-        S.ov.heatView = v;
-        Object.keys(segButtons).forEach((k) => segButtons[k].classList.toggle('on', k === v));
-        drawHeat();
-      });
-      segButtons[v] = b;
-      seg.appendChild(b);
-    });
-    heatHead.appendChild(seg);
     heat.appendChild(heatHead);
     const heatBody = el('div', 'dash-panel-body heat-body');
     heat.appendChild(heatBody);
+    const heatDetailHost = el('div', 'heat-detail-host');
+    heatHost.appendChild(heat);
+    heatHost.appendChild(heatDetailHost);
     addMod({
       key: 'heat', title: t('ov.heat.title'), meta: t('ov.heat.sub'),
-      icon: DASH_ICONS.chart, node: heat, home: heatCol,
+      icon: DASH_ICONS.chart, node: heatHost, home: heatCol,
+      detail: () => buildHeatDetail(),
     });
 
-    function drawHeat() {
-      heatBody.innerHTML = '';
-      let rows = [];
-      let aggregated = false;
-      // 锚点跟随顶部日期筛选的终点；行区间再与筛选范围取交集
-      const anchor = S.ov.dateTo;
-      const clamp = (s, e) => {
-        const a = s < S.ov.dateFrom ? S.ov.dateFrom : s;
-        const b = e > S.ov.dateTo ? S.ov.dateTo : e;
-        return a > b ? null : { from: a, to: b };
-      };
-
-      if (S.ov.heatView === 'week') {
-        const monday = mondayOf(anchor);
-        rows = Array.from({ length: 7 }, (_, i) => {
-          const d = E.utils.addDays(monday, i);
-          const c = clamp(d, d);
-          return c ? { ...c, label: `${t(HEAT_WEEKDAYS[i])} ${d.slice(5).replace('-', '/')}` } : null;
-        }).filter(Boolean);
-      } else if (S.ov.heatView === 'month') {
-        const ym = anchor.slice(0, 7);
-        const first = `${ym}-01`;
-        const monthEnd = E.utils.iso(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0));
-        const firstMon = mondayOf(first);
-        rows = Array.from({ length: 5 }, (_, i) => {
-          const ws = E.utils.addDays(firstMon, i * 7);
-          const we = E.utils.addDays(ws, 6);
-          const c = clamp(ws < first ? first : ws, we > monthEnd ? monthEnd : we);
-          return c ? { ...c, label: t('ov.heat.weekN', { n: i + 1 }) } : null;
-        }).filter(Boolean);
-      } else {
-        const from = S.ov.dateFrom;
-        const to = S.ov.dateTo;
-        const days = Math.max(0, Math.round((E.utils.d2(to) - E.utils.d2(from)) / 86400000) + 1);
-        if (days <= 14) {
-          for (let i = 0; i < days; i++) {
-            const d = E.utils.addDays(from, i);
-            rows.push({ from: d, to: d, label: d.slice(5).replace('-', '/') });
-          }
-        } else {
-          aggregated = true;
-          const mondays = new Set();
-          for (let i = 0; i < days; i++) mondays.add(mondayOf(E.utils.addDays(from, i)));
-          Array.from(mondays).sort().forEach((m) => {
-            const end = E.utils.addDays(m, 6);
-            const s = m < from ? from : m;
-            const e = end > to ? to : end;
-            rows.push({ from: s, to: e, label: `${s.slice(5).replace('-', '/')}–${e.slice(5).replace('-', '/')}` });
-          });
-        }
-      }
-
+    /** 把热力网格渲染到指定容器（主视图与详情页共用，数据均来自 scoped） */
+    function renderHeatInto(bodyEl, rows, aggregated) {
+      bodyEl.innerHTML = '';
       const rowByDate = new Map();
       rows.forEach((r, i) => {
         let d = r.from;
@@ -1564,35 +1545,101 @@
         table.appendChild(rowEl);
       });
 
-      if (!total) heatBody.appendChild(el('div', 'notice', esc(t('ov.heat.empty'))));
-      heatBody.appendChild(table);
+      if (!total) bodyEl.appendChild(el('div', 'notice', esc(t('ov.heat.empty'))));
+      bodyEl.appendChild(table);
       const foot = el('div', 'heat-foot');
       foot.innerHTML = `<div class="heat-legend"><span>${esc(t('ov.heat.less'))}</span><i class="heat-legend-bar"></i><span>${esc(t('ov.heat.more'))}</span></div>
         <div class="heat-summary"><b>${num(total)}</b> ${esc(t('ov.heat.unit'))}${aggregated ? ' · ' + esc(t('ov.heat.aggregated')) : ''}</div>`;
-      heatBody.appendChild(foot);
+      bodyEl.appendChild(foot);
+    }
+
+    /** 主视图行数规则：筛选区间 ≥7 天取最近 7 天，否则按所选天数 */
+    function drawHeat() {
+      const from = S.ov.dateFrom, to = S.ov.dateTo;
+      const days = daysInclusive(from, to);
+      const start = days >= 7 ? E.utils.addDays(to, -6) : from;
+      renderHeatInto(heatBody, heatDailyRows(start, to), false);
     }
     drawHeat();
 
-    // 筛选后无数据时的空态提示保留
-    if (!metrics.issued && !metrics.used) {
-      const em = el('div', 'empty');
-      em.innerHTML = `<div class="empty-title">${esc(t('ov.empty'))}</div>`;
-      const acts = el('div', 'empty-actions');
-      const b1 = el('button', 'btn btn-ghost btn-sm', '清除筛选');
-      b1.addEventListener('click', () => {
-        S.ov.couponTypes = []; S.ov.campaignIds = []; render();
-        toast('已清除券种与活动筛选', 'ok');
+    /* ---------- 热力图详情：本周 / 本月快捷键 + 短时间筛选窗口 ---------- */
+    let heatDetailBuilt = false;
+    let heatDetailRedraw = null;
+    function buildHeatDetail() {
+      if (heatDetailBuilt) { if (heatDetailRedraw) heatDetailRedraw(); return; }
+      heatDetailBuilt = true;
+      const hd = S.ov.heatDetail;
+      const p = panel(t('ov.heat.title'), t('ov.heat.detail.sub'), DASH_ICONS.chart);
+      p.root.classList.add('heat-detail-panel');
+      p.body.classList.add('heat-detail-body');
+      heatDetailHost.appendChild(p.root);
+
+      const tool = el('div', 'heat-detail-tool');
+      const seg = el('div', 'seg heat-detail-seg');
+      const segBtns = {};
+      ['week', 'month'].forEach((v) => {
+        const b = el('button', '', esc(t('ov.heat.' + v)));
+        b.type = 'button';
+        b.dataset.view = v;
+        b.addEventListener('click', () => {
+          hd.view = v;
+          const r = detailRange(v);
+          hd.from = r.from; hd.to = r.to;
+          rp.setValue(r.from, r.to);
+          syncSeg();
+          drawDetailHeat();
+        });
+        segBtns[v] = b;
+        seg.appendChild(b);
       });
-      const b2 = el('button', 'btn btn-ghost btn-sm', '放宽到近 30 天');
-      b2.addEventListener('click', () => {
-        S.ov.dateFrom = E.utils.addDays(C.DATA_TODAY, -30);
-        S.ov.dateTo = C.DATA_TODAY;
-        render();
-        toast('日期范围已放宽到近 30 天', 'ok');
+      tool.appendChild(seg);
+
+      const rpWrap = el('div', 'heat-detail-range');
+      rpWrap.appendChild(el('span', 'heat-detail-range-label', esc(t('ov.heat.detail.range'))));
+      const rp = rangePicker({
+        from: hd.from || S.ov.dateFrom, to: hd.to || S.ov.dateTo,
+        today: C.DATA_TODAY, minDate: S.ov.dateFrom, maxDate: S.ov.dateTo,
+        onChange: (a, b) => {
+          if (!a || !b) return;
+          hd.view = 'custom'; hd.from = a; hd.to = b;
+          syncSeg(); drawDetailHeat();
+        },
       });
-      acts.appendChild(b1); acts.appendChild(b2);
-      em.appendChild(acts);
-      normalFlow.appendChild(em);
+      rpWrap.appendChild(rp);
+      tool.appendChild(rpWrap);
+      p.body.appendChild(tool);
+
+      const detailGrid = el('div', 'heat-detail-grid');
+      p.body.appendChild(detailGrid);
+
+      function syncSeg() {
+        Object.keys(segBtns).forEach((k) => segBtns[k].classList.toggle('on', hd.view === k));
+      }
+      function detailRange(view) {
+        const anchor = S.ov.dateTo;
+        if (view === 'week') {
+          const mon = mondayOf(anchor);
+          return clampToFilter(mon, E.utils.addDays(mon, 6)) || { from: S.ov.dateFrom, to: S.ov.dateTo };
+        }
+        if (view === 'month') {
+          const ym = anchor.slice(0, 7), first = `${ym}-01`;
+          const monthEnd = E.utils.iso(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0));
+          return clampToFilter(first, monthEnd) || { from: S.ov.dateFrom, to: S.ov.dateTo };
+        }
+        return clampToFilter(hd.from || S.ov.dateFrom, hd.to || S.ov.dateTo) || { from: S.ov.dateFrom, to: S.ov.dateTo };
+      }
+      function drawDetailHeat() {
+        const r = detailRange(hd.view);
+        const days = daysInclusive(r.from, r.to);
+        const aggregated = days > 14;
+        renderHeatInto(detailGrid, aggregated ? heatWeeklyRows(r.from, r.to) : heatDailyRows(r.from, r.to), aggregated);
+      }
+      heatDetailRedraw = drawDetailHeat;
+      const init = detailRange(hd.view);
+      hd.from = init.from; hd.to = init.to;
+      rp.setValue(init.from, init.to);
+      syncSeg();
+      drawDetailHeat();
     }
 
     // 筛选 / 语言切换会重建页面：恢复聚焦模块（无动画，避免闪烁）

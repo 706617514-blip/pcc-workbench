@@ -2235,3 +2235,30 @@ body { padding: 30px; }
 .dash-normal .store-host,
 .dash-normal .store-host > .dash-panel,
 .dash-normal .store-detail-host { height: auto; }
+
+/* ==========================================================================
+ * 核销时段热力图：详情视图（本周/本月快捷键 + 短时间筛选窗口）
+ * 主视图只显示最近 7 天（不足 7 天按所选天数）；详情可自选区间。
+ * 结构与 store-host 一致：host 包住正常面板与详情面板，聚焦时切换显隐。
+ * ========================================================================== */
+.heat-host { height: 100%; min-width: 0; }
+.heat-host > .heat-panel { height: 100%; }
+.heat-detail-host { display: none; height: 100%; min-width: 0; }
+.dash-board.is-focused .dash-stage [data-mod="heat"] > .mod-full > .heat-host > .heat-panel { display: none; }
+.dash-board.is-focused .dash-stage [data-mod="heat"] > .mod-full > .heat-host > .heat-detail-host { display: block; }
+.dash-board.is-focused .dash-stage [data-mod="heat"] .heat-detail-panel {
+  min-height: min(520px, 58vh); display: flex; flex-direction: column;
+}
+/* 详情主体：工具条 + 网格，纵向排列，避免被 detail-body 的网格规则拉伸 */
+.heat-detail-body { display: flex; flex-direction: column; gap: 14px; }
+.heat-detail-tool {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line-2);
+}
+.heat-detail-seg { flex: 0 0 auto; }
+.heat-detail-range { display: flex; align-items: center; gap: 10px; flex: 1 1 300px; min-width: 0; }
+.heat-detail-range-label { font-size: 12px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
+.heat-detail-range .control { flex: 1 1 260px; min-width: 220px; }
+.heat-detail-grid { min-width: 0; }
+/* 正常流：heat panel 现在嵌在 heat-host 内，保持高度自然、不被拉伸 */
+.dash-normal .heat-host > .heat-panel { height: auto; }
