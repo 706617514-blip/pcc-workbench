@@ -671,7 +671,9 @@
 
   function detailSection(title, node, hint, wide) {
     const s = el('div', 'detail-section' + (wide ? ' is-wide' : ''));
-    s.appendChild(el('div', 'detail-section-head', esc(title) + (hint ? ` · ${esc(hint)}` : '')));
+    // 小标题统一放进内容框内（与 detailChart 一致），不再浮在框外
+    const head = el('div', 'detail-section-head', esc(title) + (hint ? ` · ${esc(hint)}` : ''));
+    if (node && node.insertBefore) node.insertBefore(head, node.firstChild);
     s.appendChild(node);
     return s;
   }

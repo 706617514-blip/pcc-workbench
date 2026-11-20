@@ -2290,3 +2290,18 @@ body { padding: 30px; }
   -webkit-column-break-inside: avoid;
   margin-bottom: 8px;
 }
+
+/* ==========================================================================
+ * 详情小标题统一放进内容框内
+ * - detailSection 的标题已插入 .detail-bars/.detail-list 框内，与 detailChart 一致；
+ * - 门店分布多列布局里标题跨列置顶，不挤歪左右两列对齐。
+ * ========================================================================== */
+.detail-bars > .detail-section-head,
+.detail-list > .detail-section-head {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-2);
+}
+.detail-section.is-wide .detail-bars > .detail-section-head {
+  column-span: all; /* 多列容器中标题跨列置顶 */
+}
