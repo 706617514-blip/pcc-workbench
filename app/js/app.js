@@ -1455,7 +1455,24 @@
       }
     }
 
-    /* ---------- 模块 4：券种核销率横向条形图（纯 HTML/CSS） ---------- */
+    /* ---------- 模块 4：券种核销率横向条形图（纯 HTML/CSS） ----------
+     * 总界面：仅显示核销率 TOP6；
+     * 详情页：显示全部券种，并分「全港统一券种」「门店活动券」两列各自排名。 */
+    /** 生成一行券种/活动条形（甜甜圈 + 进度条 + 核销率），两处共用 */
+    function couponRateRow(x, max, onPick) {
+      const b = el('button', 'rate-row coupon-rate');
+      b.type = 'button';
+      b.style.setProperty('--donut-deg', (Math.min(1, x.rate) * 300).toFixed(1) + 'deg');
+      const w = max > 0 ? Math.max(2, (x.rate / max) * 100) : 0;
+      b.innerHTML = `<span class="rate-name">${esc(x.name)}<small>${esc(x.sub)}</small></span>
+        <span class="rate-track"><i class="rate-fill" style="width:${w.toFixed(1)}%"></i></span>
+        <b class="rate-val">${esc(x.text)}</b>`;
+      b.title = x.title || '';
+      if (typeof onPick === 'function') b.addEventListener('click', (ev) => { ev.stopPropagation(); onPick(); });
+      else b.disabled = true;
+      return b;
+    }
+    const couponHost = el('div', 'coupon-host');
     const couponPanel = panel(t('ov.coupon.bar'), t('ov.coupon.bar.sub'), DASH_ICONS.ticket);
     const rateRows = Object.values(metrics.byType)
       .filter((x) => x.issued > 0)
@@ -1464,26 +1481,92 @@
     if (!rateRows.length) {
       couponPanel.body.appendChild(el('div', 'empty', esc(t('ov.coupon.empty'))));
     } else {
-      rateRows.forEach((x) => {
-        const width = maxRate > 0 ? Math.max(2, (x.redeem_rate / maxRate) * 100) : 0;
-        const b = el('button', 'rate-row coupon-rate');
-        b.type = 'button';
-        b.style.setProperty('--donut-deg', (Math.min(1, x.redeem_rate) * 300).toFixed(1) + 'deg');
-        b.innerHTML = `<span class="rate-name">${esc(x.name)}<small>${esc(x.discount_label)} · ${num(x.used)} ${esc(t('ov.heat.unit'))}</small></span>
-          <span class="rate-track"><i class="rate-fill" style="width:${width.toFixed(1)}%"></i></span>
-          <b class="rate-val">${esc(pct(x.redeem_rate))}</b>`;
-        b.title = `${x.name} · ${t('ov.coupon.picked', { name: x.name })}`;
-        b.addEventListener('click', () => {
+      // 数据中心只显示 TOP6
+      rateRows.slice(0, 6).forEach((x) => {
+        couponPanel.body.appendChild(couponRateRow({
+          name: x.name, sub: `${x.discount_label} · ${num(x.used)} ${t('ov.heat.unit')}`,
+          rate: x.redeem_rate, text: pct(x.redeem_rate),
+          title: `${x.name} · ${t('ov.coupon.picked', { name: x.name })}`,
+        }, maxRate, () => {
           S.ov.couponTypes = [x.key];
           render();
           toast(t('ov.coupon.picked', { name: x.name }), 'ok');
-        });
-        couponPanel.body.appendChild(b);
+        }));
       });
     }
+    couponHost.appendChild(couponPanel.root);
+    const couponDetailHost = el('div', 'coupon-detail-host');
+    couponHost.appendChild(couponDetailHost);
+
+    /* 券种详情：全港统一券种 vs 门店活动券，两列各自按核销率由高到低 */
+    const unifiedCouponRows = Object.values(metrics.byType)
+      .filter((x) => x.issued > 0 && E.COUPON_TYPES[x.key] && E.COUPON_TYPES[x.key].scope === 'all_hk')
+      .map((x) => ({
+        name: x.name, sub: `${x.discount_label} · ${num(x.used)} ${t('ov.heat.unit')}`,
+        rate: x.redeem_rate, text: pct(x.redeem_rate), key: x.key,
+      }))
+      .sort((a, b) => b.rate - a.rate);
+    const storeCouponRows = metrics.byCampaign
+      .filter((x) => x.issued > 0 && x.coupon_type === 'store_local')
+      .map((x) => {
+        const rate = x.issued ? x.used / x.issued : 0;
+        return {
+          name: x.name, sub: `${x.scope_label} · ${num(x.used)}/${num(x.issued)}`,
+          rate, text: pct(rate), cid: x.campaign_id,
+        };
+      })
+      .sort((a, b) => b.rate - a.rate);
+
+    let couponDetailBuilt = false;
+    function buildCouponDetail() {
+      if (couponDetailBuilt) return;
+      couponDetailBuilt = true;
+      const p = panel(t('ov.coupon.bar'), t('ov.coupon.detail.sub'), DASH_ICONS.ticket);
+      p.root.classList.add('coupon-detail-panel');
+      p.body.classList.add('coupon-detail-body');
+      couponDetailHost.appendChild(p.root);
+
+      p.body.appendChild(detailStats([
+        { label: t('ov.coupon.detail.unifiedCount'), value: num(unifiedCouponRows.length) },
+        { label: t('ov.coupon.detail.storeCount'), value: num(storeCouponRows.length) },
+        { label: t('ov.coupon.detail.overall'), value: pct(metrics.redeem_rate) },
+        { label: t('ov.coupon.detail.typeCount'), value: num(rateRows.length) },
+      ]));
+
+      const grid = el('div', 'coupon-detail-grid');
+      function detailCol(title, hint, rows, onPick) {
+        const c = el('div', 'coupon-detail-col');
+        const head = el('div', 'coupon-detail-col-head');
+        head.innerHTML = `<b>${esc(title)}</b><span>${esc(hint)}</span>`;
+        c.appendChild(head);
+        const list = el('div', 'coupon-detail-col-list');
+        const mx = rows.reduce((m, x) => Math.max(m, x.rate), 0);
+        if (!rows.length) list.appendChild(el('div', 'empty', esc(t('ov.coupon.empty'))));
+        else rows.forEach((x) => list.appendChild(couponRateRow(x, mx, () => onPick(x))));
+        c.appendChild(list);
+        return c;
+      }
+      grid.appendChild(detailCol(
+        t('ov.coupon.detail.unified'), t('ov.coupon.detail.unifiedHint'), unifiedCouponRows,
+        (x) => {
+          S.ov.couponTypes = [x.key]; S.ov.campaignIds = [];
+          render();
+          toast(t('ov.coupon.picked', { name: x.name }), 'ok');
+        }));
+      grid.appendChild(detailCol(
+        t('ov.coupon.detail.store'), t('ov.coupon.detail.storeHint'), storeCouponRows,
+        (x) => {
+          S.ov.couponTypes = []; S.ov.campaignIds = [x.cid];
+          render();
+          toast(t('ov.coupon.pickCampaign', { name: x.name }), 'ok');
+        }));
+      p.body.appendChild(grid);
+    }
+
     addMod({
       key: 'coupon', title: t('ov.coupon.bar'), meta: `${rateRows.length} 个券种`,
-      icon: DASH_ICONS.ticket, node: couponPanel.root, home: couponCol,
+      icon: DASH_ICONS.ticket, node: couponHost, home: couponCol,
+      detail: () => buildCouponDetail(),
     });
 
     /* ---------- 模块 5：核销时段热力图 ----------

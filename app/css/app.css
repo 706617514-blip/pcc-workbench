@@ -2305,3 +2305,38 @@ body { padding: 30px; }
 .detail-section.is-wide .detail-bars > .detail-section-head {
   column-span: all; /* 多列容器中标题跨列置顶 */
 }
+
+/* ==========================================================================
+ * 券种表现：总界面 TOP6，详情页全券种按「全港统一券种 / 门店活动券」两列排名
+ * 结构与 store-host / heat-host 一致：host 包正常面板与详情面板，聚焦时切换。
+ * ========================================================================== */
+.coupon-host { height: 100%; min-width: 0; }
+.coupon-host > .dash-panel { height: 100%; }
+.coupon-detail-host { display: none; height: 100%; min-width: 0; }
+.dash-board.is-focused .dash-stage [data-mod="coupon"] > .mod-full > .coupon-host > .dash-panel { display: none; }
+.dash-board.is-focused .dash-stage [data-mod="coupon"] > .mod-full > .coupon-host > .coupon-detail-host { display: block; }
+.dash-board.is-focused .dash-stage [data-mod="coupon"] .coupon-detail-panel {
+  min-height: min(520px, 58vh); display: flex; flex-direction: column;
+}
+.coupon-detail-body { display: flex; flex-direction: column; gap: 16px; }
+.coupon-detail-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 22px; align-items: start; flex: 1 1 auto;
+}
+.coupon-detail-col {
+  min-width: 0; padding: 14px; border-radius: 14px;
+  background: rgba(255, 255, 255, .5); border: 1px solid rgba(255, 255, 255, .9);
+}
+.coupon-detail-col-head {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--line-2);
+}
+.coupon-detail-col-head b { font-size: 13px; font-weight: 800; color: var(--pcc-red); }
+.coupon-detail-col-head span { font-size: 10.5px; font-weight: 500; color: var(--ink-4); }
+.coupon-detail-col-list { display: flex; flex-direction: column; gap: 1px; }
+/* 正常流：券种面板现在嵌在 coupon-host 内，随同行等高网格拉伸、列表均匀分布 */
+.dash-normal [data-mod="coupon"] > .mod-full > .coupon-host { height: 100%; display: flex; flex-direction: column; }
+.dash-normal [data-mod="coupon"] > .mod-full > .coupon-host > .dash-panel { display: flex; flex-direction: column; }
+.dash-normal [data-mod="coupon"] > .mod-full > .coupon-host > .dash-panel > .dash-panel-body {
+  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-evenly;
+}
