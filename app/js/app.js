@@ -1511,12 +1511,19 @@
     const couponDetailHost = el('div', 'coupon-detail-host');
     couponHost.appendChild(couponDetailHost);
 
-    /* 券种详情：全港统一券种 vs 门店活动券，两列各自按核销率由高到低 */
+    /* 券种详情：
+     * 上方「全部券种排名」= 统一券种 + 门店活动券合并后按核销率统一排名，左右两列；
+     * 下方左「全港统一券种」/ 右「门店活动券」两列，列内滚动保证左右对齐。 */
     const unifiedCouponRows = Object.values(metrics.byType)
       .filter((x) => x.issued > 0 && E.COUPON_TYPES[x.key] && E.COUPON_TYPES[x.key].scope === 'all_hk')
       .map((x) => ({
         name: x.name, sub: `${x.discount_label} · ${num(x.used)} ${t('ov.heat.unit')}`,
         rate: x.redeem_rate, text: pct(x.redeem_rate), key: x.key,
+        pick: () => {
+          S.ov.couponTypes = [x.key]; S.ov.campaignIds = [];
+          render();
+          toast(t('ov.coupon.picked', { name: x.name }), 'ok');
+        },
       }))
       .sort((a, b) => b.rate - a.rate);
     const storeCouponRows = metrics.byCampaign
@@ -1526,9 +1533,17 @@
         return {
           name: x.name, sub: `${x.scope_label} · ${num(x.used)}/${num(x.issued)}`,
           rate, text: pct(rate), cid: x.campaign_id,
+          pick: () => {
+            S.ov.couponTypes = []; S.ov.campaignIds = [x.campaign_id];
+            render();
+            toast(t('ov.coupon.pickCampaign', { name: x.name }), 'ok');
+          },
         };
       })
       .sort((a, b) => b.rate - a.rate);
+    // 全部券种合并排名（两类共用行组件与筛选逻辑）
+    const allCouponRows = unifiedCouponRows.concat(storeCouponRows).sort((a, b) => b.rate - a.rate);
+    const allCouponMax = allCouponRows.reduce((m, x) => Math.max(m, x.rate), 0);
 
     let couponDetailBuilt = false;
     function buildCouponDetail() {
@@ -1546,8 +1561,31 @@
         { label: t('ov.coupon.detail.typeCount'), value: num(rateRows.length) },
       ]));
 
+      // 上方：全部券种统一排名（两类合并），左右两列。左列从上到下排满再接右列，序号连续。
+      const allRank = el('div', 'coupon-allrank');
+      const allHead = el('div', 'coupon-grid-head');
+      allHead.innerHTML = `<b>${esc(t('ov.coupon.detail.allRank'))}</b><span>${esc(t('ov.coupon.detail.allRankHint'))}</span>`;
+      allRank.appendChild(allHead);
+      const allCols = el('div', 'coupon-allrank-cols');
+      const half = Math.ceil(allCouponRows.length / 2);
+      [allCouponRows.slice(0, half), allCouponRows.slice(half)].forEach((part) => {
+        const col = el('div', 'coupon-allrank-col');
+        if (!part.length) col.appendChild(el('div', 'empty', esc(t('ov.coupon.empty'))));
+        part.forEach((x, i) => {
+          const rank = allCouponRows.indexOf(x) + 1;
+          col.appendChild(couponRateRow({
+            ...x,
+            name: `${String(rank).padStart(2, '0')} · ${x.name}`,
+          }, allCouponMax, x.pick));
+        });
+        allCols.appendChild(col);
+      });
+      allRank.appendChild(allCols);
+      p.body.appendChild(allRank);
+
+      // 下方：左「全港统一券种」/ 右「门店活动券」，列内滚动、两列等高对齐
       const grid = el('div', 'coupon-detail-grid');
-      function detailCol(title, hint, rows, onPick) {
+      function detailCol(title, hint, rows) {
         const c = el('div', 'coupon-detail-col');
         const head = el('div', 'coupon-detail-col-head');
         head.innerHTML = `<b>${esc(title)}</b><span>${esc(hint)}</span>`;
@@ -1555,24 +1593,14 @@
         const list = el('div', 'coupon-detail-col-list');
         const mx = rows.reduce((m, x) => Math.max(m, x.rate), 0);
         if (!rows.length) list.appendChild(el('div', 'empty', esc(t('ov.coupon.empty'))));
-        else rows.forEach((x) => list.appendChild(couponRateRow(x, mx, () => onPick(x))));
+        else rows.forEach((x) => list.appendChild(couponRateRow(x, mx, x.pick)));
         c.appendChild(list);
         return c;
       }
       grid.appendChild(detailCol(
-        t('ov.coupon.detail.unified'), t('ov.coupon.detail.unifiedHint'), unifiedCouponRows,
-        (x) => {
-          S.ov.couponTypes = [x.key]; S.ov.campaignIds = [];
-          render();
-          toast(t('ov.coupon.picked', { name: x.name }), 'ok');
-        }));
+        t('ov.coupon.detail.unified'), t('ov.coupon.detail.unifiedHint'), unifiedCouponRows));
       grid.appendChild(detailCol(
-        t('ov.coupon.detail.store'), t('ov.coupon.detail.storeHint'), storeCouponRows,
-        (x) => {
-          S.ov.couponTypes = []; S.ov.campaignIds = [x.cid];
-          render();
-          toast(t('ov.coupon.pickCampaign', { name: x.name }), 'ok');
-        }));
+        t('ov.coupon.detail.store'), t('ov.coupon.detail.storeHint'), storeCouponRows));
       p.body.appendChild(grid);
     }
 

@@ -143,6 +143,8 @@
       'ov.coupon.detail.storeCount': '门店活动',
       'ov.coupon.detail.overall': '整体核销率',
       'ov.coupon.detail.typeCount': '券种总数',
+      'ov.coupon.detail.allRank': '全部券种排名',
+      'ov.coupon.detail.allRankHint': '统一券种 + 门店活动券合并 · 按核销率从高到低',
       /* 门店对比 / 单店下钻 */
       'ov.store.title': '门店对比',
       'ov.store.sub': '按核销表现排序 · 点进看单店详情',
@@ -581,6 +583,8 @@
       'ov.coupon.detail.storeCount': '門店活動',
       'ov.coupon.detail.overall': '整體核銷率',
       'ov.coupon.detail.typeCount': '券種總數',
+      'ov.coupon.detail.allRank': '全部券種排名',
+      'ov.coupon.detail.allRankHint': '統一券種 + 門店活動券合併 · 按核銷率由高到低',
       /* 門店對比 / 單店下鑽 */
       'ov.store.title': '門店對比',
       'ov.store.sub': '按核銷表現排序 · 點進看單店詳情',
@@ -901,6 +905,8 @@
       'ov.coupon.detail.storeCount': 'Store campaigns',
       'ov.coupon.detail.overall': 'Overall redemption',
       'ov.coupon.detail.typeCount': 'Coupon types',
+      'ov.coupon.detail.allRank': 'All coupons ranking',
+      'ov.coupon.detail.allRankHint': 'Standard + store coupons combined · ranked by redemption rate',
       /* Store comparison / single-store drill-down */
       'ov.store.title': 'Store comparison',
       'ov.store.sub': 'Ranked by redemption · open for store details',
