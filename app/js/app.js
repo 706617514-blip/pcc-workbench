@@ -660,8 +660,8 @@
     return s;
   }
 
-  function detailSection(title, node, hint) {
-    const s = el('div', 'detail-section');
+  function detailSection(title, node, hint, wide) {
+    const s = el('div', 'detail-section' + (wide ? ' is-wide' : ''));
     s.appendChild(el('div', 'detail-section-head', esc(title) + (hint ? ` · ${esc(hint)}` : '')));
     s.appendChild(node);
     return s;
@@ -1160,7 +1160,7 @@
         if (!store) blocks.push(detailSection(t('ov.detail.storeUsed'), detailBars(usedByStore, (r) => {
           const v = storeStats.find((x) => x.name === r.name);
           if (v) openStoreDetail(v.sid);
-        }), t('ov.store.rankHint')));
+        }), t('ov.store.rankHint'), true));
       } else if (key === 'paid') {
         blocks.push(detailStats([
           { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
@@ -1175,7 +1175,7 @@
         if (!store) blocks.push(detailSection(t('ov.detail.storePaid'), detailBars(paidByStore, (r) => {
           const v = storeStats.find((x) => x.name === r.name);
           if (v) openStoreDetail(v.sid);
-        }), t('ov.store.rankHint')));
+        }), t('ov.store.rankHint'), true));
       } else if (key === 'used') {
         blocks.push(detailStats([
           { label: t('ov.detail.used'), value: num(metrics.used) },

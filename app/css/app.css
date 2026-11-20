@@ -2269,3 +2269,18 @@ body { padding: 30px; }
 .heat-detail-grid { min-width: 0; }
 /* 正常流：heat panel 嵌在 heat-host 内，随同行等高网格拉伸 */
 .dash-normal .heat-host > .heat-panel { height: 100%; }
+
+/* ==========================================================================
+ * 详情页「门店分布」跨满两列 + 内部自适应多列
+ * - 门店数多时（如全港 30 店）不再堆满单列、右半边留白；
+ * - 每行并排多个门店，列数按容器宽度自适应，行数随门店数自动减半；
+ * - 最后一行允许落单（奇数门店），不做强行补齐。
+ * ========================================================================== */
+.detail-body > .detail-section.is-wide { grid-column: 1 / -1; }
+.detail-section.is-wide .detail-bars {
+  display: grid;
+  /* 桌面两列并排（每列约 600px，进度条更舒展）；窄屏自动回退单列 */
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: 8px 22px;
+}
+.detail-section.is-wide .detail-bar-row { min-width: 0; }
