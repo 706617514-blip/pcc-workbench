@@ -511,6 +511,39 @@
         `待审批不可启停=${r4 ? r4.code : '无样本'}`);
     } catch (e) { rec(20, '停止活动（仅管理层）', false, 'ERR ' + e.message); }
 
+    /* ---- 21. 门店撤回提报（仅本人本店、仅待审批） ---- */
+    try {
+      const camp = DB.campaigns.find((c) => c.coupon_type === 'store_local') || DB.campaigns[0];
+      const store2 = E.ACCOUNTS.find((a) => a.account_id === 'store.central02');
+      const saved = { status: camp.status, store_id: camp.store_id, store_scope: camp.store_scope };
+
+      camp.status = 'pending'; camp.store_id = store.scope_id; camp.store_scope = 'store';
+      const ok1 = E.withdrawCampaign(camp.campaign_id, '太古城店员', '验收：撤回提报', { account: store });
+      const after = camp.status;
+      const auditHit = DB.auditLog.some((a) => a.object_id === camp.campaign_id && a.action === 'withdraw_campaign');
+
+      camp.status = 'pending';
+      const denied = E.withdrawCampaign(camp.campaign_id, '中环店员', '越权尝试', { account: store2 });
+
+      camp.status = 'approved';
+      const badState = E.withdrawCampaign(camp.campaign_id, '太古城店员', '状态不允许', { account: store });
+
+      camp.status = 'pending';
+      const noReason = E.withdrawCampaign(camp.campaign_id, '太古城店员', '  ', { account: store });
+
+      Object.assign(camp, saved);
+
+      const ok = !!(ok1 && ok1.ok && after === 'draft' && auditHit
+        && denied && denied.code === 'FORBIDDEN_SCOPE'
+        && badState && badState.code === 'INVALID_STATE'
+        && noReason && noReason.code === 'REASON_REQUIRED');
+      rec(21, '门店撤回提报',
+        ok,
+        `撤回成功=${!!(ok1 && ok1.ok)}（状态→${after}）；写审计=${auditHit}；` +
+        `跨店越权被拒=${denied ? denied.code : '无样本'}；` +
+        `已批准不可撤回=${badState ? badState.code : '无样本'}；空原因被拒=${noReason ? noReason.code : '无样本'}`);
+    } catch (e) { rec(21, '门店撤回提报', false, 'ERR ' + e.message); }
+
     const pass = results.filter((r) => r.pass).length;    const summary = {
       total: results.length, pass, fail: results.length - pass,
       results: results.map((r) => ({ id: r.id, name: r.name, pass: r.pass, detail: r.detail })),

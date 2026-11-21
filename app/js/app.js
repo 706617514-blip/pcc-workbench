@@ -116,7 +116,7 @@
    *   · 浏览器前进 / 后退可用
    *   · 可以直接把某个页面的链接发给别人（如 #/records）
    * --------------------------------------------------------------*/
-  const PAGES = ['overview', 'create', 'propose', 'manage', 'approval', 'progress', 'records', 'settings', 'store-info'];
+  const PAGES = ['overview', 'create', 'propose', 'manage', 'approval', 'progress', 'records', 'settings', 'store-info', 'audit'];
   const HQ_PAGES = ['overview', 'create', 'manage', 'approval', 'records', 'settings'];
   const STORE_PAGES = ['overview', 'propose', 'manage', 'progress', 'store-info'];
 
@@ -145,6 +145,8 @@
     if (p === 'propose') return 'create';
     if (p === 'progress') return 'approval';
     if (p === 'store-info') return 'settings';
+    // 审计日志仅对「总部账号管理员」开放；营销人员与门店一律回总览
+    if (p === 'audit') return account().can_manage_accounts ? 'audit' : 'overview';
     return HQ_PAGES.indexOf(p) >= 0 ? p : 'overview';
   }
 
@@ -456,6 +458,7 @@
       create: 'cr.title', propose: 'propose.title',
       manage: 'mg.title', approval: 'ap.title', progress: 'progress.title',
       records: 'sr.title', settings: 'st.title', 'store-info': 'storeinfo.title',
+      audit: 'audit.title',
     }[S.page];
   }
 
@@ -476,7 +479,11 @@
       scopeChip.textContent = `${E.utils.storeLabel(acc.scope_id)} · ${t('ov.fixed')}`;
     }
     const settingsLabel = $('#accSettingsLabel');
-    if (settingsLabel) settingsLabel.textContent = t(isStore() ? 'nav.settings.store' : 'nav.settings');
+    if (settingsLabel) {
+      settingsLabel.textContent = isStore()
+        ? t('nav.settings.store')
+        : (acc.can_manage_accounts ? t('nav.settings') : t('nav.settings.readonly'));
+    }
 
     // 语言标签
     const loc = C.LOCALES.find((l) => l.key === S.locale);
@@ -498,6 +505,8 @@
       { k: 'approval', l: t('nav.approval') },
       { k: 'records', l: t('nav.records') },
     ];
+    // 账号管理员额外拥有只读审计日志入口
+    if (!isStore() && acc.can_manage_accounts) items.push({ k: 'audit', l: t('nav.audit') });
     items.forEach((it) => {
       const b = el('button', 'nav-item' + (S.page === it.k ? ' active' : ''), esc(it.l));
       b.addEventListener('click', () => {
@@ -515,7 +524,7 @@
       manage: renderManage,
       approval: renderApproval, progress: renderProgress,
       records: renderRecords,
-      settings: renderSettings, 'store-info': renderStoreInfo,
+      settings: renderSettings, 'store-info': renderStoreInfo, audit: renderAudit,
     }[S.page] || renderOverview)(content);
 
     renderAI();
@@ -2622,6 +2631,42 @@
         <ul>${ruleLines.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
       </div>`;
 
+    // 门店：本店发券任务记录（只读；只含本店任务，失败可看原因）
+    if (store) {
+      const myStore = acc.scope_id;
+      const jobs = DB.sendJob
+        .filter((j) => j.campaign_id === c.campaign_id && (!j.store_id || j.store_id === myStore))
+        .slice().reverse();
+      const sec = el('div', '');
+      sec.style.marginTop = '18px';
+      let html = `<div class="cd-sec"><span class="cd-sec-t">${esc(t('cd.store.jobs'))}</span><span class="cd-sec-line"></span>`
+        + `<span class="cd-hint">${esc(t('cd.store.jobs.hint'))}</span></div>`;
+      if (!jobs.length) {
+        html += `<div class="t-small t-muted" style="padding:8px 0">${esc(t('cd.store.jobs.none'))}</div>`;
+      } else {
+        html += `<div class="table-wrap"><table class="data"><thead><tr>
+            <th>${esc(t('sr.col.id'))}</th><th>${esc(t('sr.col.time'))}</th>
+            <th>${esc(t('sr.col.result'))}</th><th>${esc(t('cd.store.jobs.ok'))}</th>
+            <th>${esc(t('cd.store.jobs.fail'))}</th><th>${esc(t('sr.col.detail'))}</th>
+          </tr></thead><tbody>${jobs.slice(0, 6).map((j) => `<tr>
+            <td class="mono">${esc(j.job_id)}</td>
+            <td class="mono">${esc((j.executed_at || '').replace('T', ' ').slice(5))}</td>
+            <td>${j.status === 'failed' ? `<span class="t-red t-bold">${esc(t('sr.result.failed'))}</span>` : esc(t('sr.result.success'))}</td>
+            <td>${esc(num(j.success))}</td>
+            <td>${esc(num(j.failed))}</td>
+            <td><button class="btn-text" data-job="${esc(j.job_id)}">${esc(t('sr.col.detail'))}</button></td>
+          </tr>`).join('')}</tbody></table></div>`;
+      }
+      sec.innerHTML = html;
+      Array.prototype.forEach.call(sec.querySelectorAll('[data-job]'), (b) => {
+        b.addEventListener('click', () => {
+          const j = DB.sendJob.find((x) => x.job_id === b.dataset.job);
+          if (j) openJobDrawer(j);
+        });
+      });
+      body.appendChild(sec);
+    }
+
     const foot = el('div', '');
     // 管理层（总部）可停止运行中/已批准的活动，也可重新启用已停止的活动；门店账号不显示
     const canStop = !store && (c.status === 'running' || c.status === 'approved');
@@ -2699,6 +2744,30 @@
         setHash('records');
       });
       foot.insertBefore(goSr, close);
+    }
+
+    // 门店：撤回自己尚在待审批的提报（服务端只允许本店 + pending）
+    if (store && c.status === 'pending' && c.store_id === acc.scope_id) {
+      const wd = el('button', 'btn btn-ghost', esc(t('cd.withdraw')));
+      wd.type = 'button';
+      wd.addEventListener('click', async () => {
+        const r = await confirm({
+          title: t('cd.withdraw'),
+          message: t('cd.withdraw.confirm', { name: c.name }),
+          detail: t('cd.withdraw.detail'),
+          okText: t('cd.withdraw'),
+          reasonLabel: t('cd.withdraw.reason'),
+          reasonPlaceholder: t('cd.withdraw.reason.ph'),
+          reasonRequired: true,
+        });
+        if (!r) return;
+        const res = E.withdrawCampaign(c.campaign_id, acc.display_name || acc.name, r.reason, { account: acc });
+        if (!res.ok) { toast(res.error, 'err', 4200); return; }
+        mo.close();
+        toast(t('cd.withdraw.ok'), 'ok', 3200);
+        render();
+      });
+      foot.insertBefore(wd, close);
     }
   }
 
@@ -3263,6 +3332,51 @@
   /* ================================================================
    * 页面 6 —— 设置（图 19 / 图 20）
    * ==============================================================*/
+  /* ================================================================
+   * 页面 8 —— 操作审计日志（仅总部账号管理员，只读）
+   * 数据来自 DB.auditLog（审批、启停、导出、账号变更、AI 守门等均会写入）
+   * ==============================================================*/
+  function renderAudit(host) {
+    const head = el('div', 'page-head');
+    head.innerHTML = `<div>
+        <h2 class="page-title">${esc(t('audit.title'))}</h2>
+        <p class="page-desc">${esc(t('audit.desc'))}</p>
+      </div>`;
+    const tag = el('div', '');
+    tag.innerHTML = `<span class="chip chip-grey">${esc(t('audit.readonly'))}</span>`;
+    head.appendChild(tag);
+    host.appendChild(head);
+
+    const rows = DB.auditLog.slice().reverse();
+    const card = el('div', 'card');
+    if (!rows.length) {
+      card.appendChild(el('div', 'empty', esc(t('audit.empty'))));
+    } else {
+      const tw = el('div', 'table-wrap');
+      const table = el('table', 'data');
+      table.innerHTML = `<thead><tr>
+          <th>${esc(t('audit.col.time'))}</th><th>${esc(t('audit.col.actor'))}</th>
+          <th>${esc(t('audit.col.action'))}</th><th>${esc(t('audit.col.object'))}</th>
+          <th>${esc(t('audit.col.detail'))}</th><th>${esc(t('audit.col.reason'))}</th>
+        </tr></thead><tbody>${rows.slice(0, 120).map((a) => `<tr>
+          <td class="mono">${esc((a.at || '').replace('T', ' '))}</td>
+          <td>${esc(a.actor)}</td>
+          <td class="mono">${esc(a.action)}</td>
+          <td class="mono">${esc(a.object_type)}·${esc(a.object_id)}</td>
+          <td>${esc(a.detail || '—')}</td>
+          <td class="t-muted">${esc(a.reason || '—')}</td>
+        </tr>`).join('')}</tbody>`;
+      tw.appendChild(table);
+      card.appendChild(tw);
+    }
+    host.appendChild(card);
+
+    const note = el('div', 't-small t-muted');
+    note.style.marginTop = '12px';
+    note.textContent = t('audit.foot', { n: rows.length });
+    host.appendChild(note);
+  }
+
   function renderSettings(host) {
     const acc = account();
     const canManage = acc.can_manage_accounts;

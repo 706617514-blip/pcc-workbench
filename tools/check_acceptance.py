@@ -10,7 +10,7 @@ import re
 import sys
 import pathlib
 
-EXPECTED = 20
+EXPECTED = 21
 
 
 def main() -> int:

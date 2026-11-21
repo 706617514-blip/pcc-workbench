@@ -1309,6 +1309,35 @@
     return { ok: true, campaign: camp, from, to: status };
   }
 
+  /**
+   * 门店撤回自己尚未审批的提报（PRD 表 7：待审批 → 草稿）。
+   * 服务端强制，fail-closed：仅门店账号、仅本店活动、仅 pending、必须写原因。
+   */
+  function withdrawCampaign(campaignId, actor, reason, opts) {
+    const camp = DB.campaigns.find((c) => c.campaign_id === campaignId);
+    if (!camp) return { ok: false, code: 'NOT_FOUND', error: '活动不存在。' };
+    const account = opts && opts.account;
+    if (!account || account.scope_type !== 'store') {
+      return { ok: false, code: 'FORBIDDEN_ROLE', error: '仅门店账号可撤回本店提报。' };
+    }
+    if (camp.store_id !== account.scope_id) {
+      return { ok: false, code: 'FORBIDDEN_SCOPE', error: '只能撤回本店提报的活动。' };
+    }
+    if (camp.status !== 'pending') {
+      return {
+        ok: false, code: 'INVALID_STATE',
+        error: `活动当前为「${STATUS.campaign[camp.status]}」，只有待审批的提报可以撤回。`,
+      };
+    }
+    if (!reason || !String(reason).trim()) {
+      return { ok: false, code: 'REASON_REQUIRED', error: '撤回提报须填写原因。' };
+    }
+    camp.status = 'draft';
+    audit(actor, 'withdraw_campaign', 'campaigns', campaignId,
+      `门店撤回提报「${camp.name}」（待审批 → 草稿）`, reason);
+    return { ok: true, campaign: camp };
+  }
+
   /* ================================================================
    * 11. 账号管理（PRD 5.3 / 表 2）
    * ==============================================================*/
@@ -1414,6 +1443,20 @@
         comment: dec === 'rejected' ? '折扣超出授权上限，请调整后重新提交。'
                : dec === 'approved' ? '同意执行，请留意频控与同意状态。' : '提交审批',
       });
+      // 审计轨迹：与历史审批一一对应，供管理员「审计日志」页展示（演示数据）
+      if (dec !== 'pending') {
+        const apprAt = new Date(d2(s.created_at.slice(0, 10)).getTime() + 86400000).toISOString().slice(0, 10)
+          + 'T' + (s.store_scope === 'store' ? '16:42' : '09:16');
+        DB.auditLog.push({
+          audit_id: 'AU-' + String(DB.seq.audit++).padStart(6, '0'),
+          actor: s.store_scope === 'store' ? '林主管' : '陈经理',
+          action: dec === 'rejected' ? 'reject_campaign' : 'approve_campaign',
+          object_type: 'campaigns', object_id: id,
+          reason: dec === 'rejected' ? '折扣超出授权上限' : '同意执行',
+          detail: `${dec === 'rejected' ? '驳回' : '批准'}活动「${s.name}」（历史演示数据）`,
+          at: apprAt,
+        });
+      }
     });
 
     // ---- 历史发放：为运行中的规则回填 12 个月券实例与核销 ----
@@ -1736,7 +1779,7 @@
     claimCoupon, redeemCoupon,
     computeMetrics, permissionGuard, routeApproval,
     audit, approvalLog, guardLog,
-    createCampaign, approveCampaign, rejectCampaign, setCampaignStatus,
+    createCampaign, approveCampaign, rejectCampaign, setCampaignStatus, withdrawCampaign,
     updateStoreAccount, createStoreAccount,
     buildExport, couponTypeKeys, scopeLabelOf, campaignCoversStore, inRangeFilter,
     // 规则优先级（老师反馈第 5 条）
