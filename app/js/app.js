@@ -3559,6 +3559,26 @@
     const body = $('#aiBody', d);
     body.appendChild(tabsBox);
 
+    // AI 能力与边界：说清哪些是确定性规则、哪些需要模型（答辩会被问）
+    const scope = el('div', 'ai-scope');
+    const scopeToggle = el('button', 'ai-scope-toggle');
+    scopeToggle.type = 'button';
+    scopeToggle.textContent = t('ai.scope.title') + ' ▾';
+    const scopeBody = el('div', 'ai-scope-body');
+    scopeBody.style.display = 'none';
+    scopeBody.innerHTML = `
+      <div class="ai-scope-row"><b>${esc(t('ai.scope.rule.t'))}</b>${esc(t('ai.scope.rule'))}</div>
+      <div class="ai-scope-row"><b>${esc(t('ai.scope.model.t'))}</b>${esc(t('ai.scope.model'))}</div>
+      <div class="ai-scope-row"><b>${esc(t('ai.scope.lic.t'))}</b>${esc(t('ai.scope.lic'))}</div>`;
+    scopeToggle.addEventListener('click', () => {
+      const open = scopeBody.style.display !== 'none';
+      scopeBody.style.display = open ? 'none' : 'block';
+      scopeToggle.textContent = t('ai.scope.title') + (open ? ' ▾' : ' ▴');
+    });
+    scope.appendChild(scopeToggle);
+    scope.appendChild(scopeBody);
+    body.appendChild(scope);
+
     // 欢迎 / 快捷提问
     if (!S.ai.history.length) S.ai.history.push({ role: 'ai', kind: 'welcome' });
     if (caps.some((c) => c.enabled) && S.ai.state === 'idle') {

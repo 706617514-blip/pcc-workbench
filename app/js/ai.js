@@ -49,7 +49,8 @@
    * 1. 意图解析（组件 A 的确定性实现）
    * ==============================================================*/
   const COUPON_KEYWORDS = [
-    { key: 'winback',    words: ['回流', '未消费', '沉睡', '挽留', '流失', '30 天', '30天', '召回'] },
+    { key: 'winback',    words: ['回流', '未消费', '未消費', '沉睡', '沉默', '挽留', '流失', '30 天', '30天',
+                            '没来', '沒來', '好久没', '好久沒', '没再消费', '未到店', '召回'] },
     { key: 'newbie',     words: ['新人', '新注册', '新客', '首单', '注册'] },
     { key: 'birthday',   words: ['生日', '寿星'] },
     { key: 'halloween',  words: ['万圣', '万聖', 'halloween', '主题', '限定', '節日', '节日'] },
@@ -74,9 +75,11 @@
     manual: ['人工', '手动', '手動', '批次', 'manual', '逐批'],
   };
   const SEGMENT_WORDS = [
-    { key: 'dormant30', words: ['30 天未消费', '30天未消费', '连续 30 天', '連續 30 天', '未消费', '未消費'] },
+    { key: 'dormant30', words: ['30 天未消费', '30天未消费', '30 天没', '30天没', '连续 30 天', '連續 30 天',
+                                '未消费', '未消費', '没来', '沒來', '好久没', '好久沒', '沉睡', '沉默'] },
     { key: 'newbie',    words: ['新注册', '新註冊', '注册 30 天内', '新人'] },
-    { key: 'highvalue', words: ['高价值', '高消費', '消费超 500', '500 以上', '白金', 'platinum'] },
+    { key: 'highvalue', words: ['高价值', '高價值', '高消費', '消费超 500', '500 以上', '白金', 'platinum',
+                                '高频', '高頻', '常客', '金卡', '消费高', '消費高', 'top'] },
     { key: 'student',   words: ['学生', '學生'] },
     { key: 'birthday',  words: ['生日'] },
     { key: 'all',       words: ['全部', '所有', '全港', '全部会员', '全部會員'] },
@@ -122,6 +125,11 @@
       discount = E.COUPON_TYPES[couponType].discount;
       offerLabel = E.COUPON_TYPES[couponType].discount_label;
       understood.push(`未指定优惠力度；采用「${E.COUPON_TYPES[couponType].name}」标准折扣 ${offerLabel}`);
+    }
+    // 与券种标准折扣不一致时，明确告知「按自定义折扣写入草稿，仍受守门约束」
+    if (!overLimit && Math.abs(discount - E.COUPON_TYPES[couponType].discount) > 1e-9) {
+      understood.push(`「${offerLabel}」与「${E.COUPON_TYPES[couponType].name}」标准折扣 `
+        + `${E.COUPON_TYPES[couponType].discount_label} 不同；按自定义折扣写入草稿，提交时仍受守门上限约束`);
     }
     // 买一送一在门店账号下视为超限
     if (overLimit && account.scope_type === 'store') {

@@ -2387,3 +2387,34 @@ body { padding: 30px; }
   min-width: 0;
   max-width: 240px;
 }
+
+
+/* ==========================================================================
+ * AI 抽屉：能力与边界面板（可折叠）
+ * ========================================================================== */
+.ai-scope { margin: 10px 0 2px; }
+.ai-scope-toggle {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(255, 253, 249, .7);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 12px;
+}
+.ai-scope-toggle:hover { border-color: var(--pcc-red); color: var(--pcc-red); }
+.ai-scope-body {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: #FAFAFB;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+.ai-scope-row + .ai-scope-row { margin-top: 7px; }
+.ai-scope-row b { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 2px; }
