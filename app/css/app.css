@@ -2360,3 +2360,30 @@ body { padding: 30px; }
 .dash-normal [data-mod="coupon"] > .mod-full > .coupon-host > .dash-panel > .dash-panel-body {
   flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-evenly;
 }
+
+/* ==========================================================================
+ * 聚焦详情：核销时段热力图居中 + 短时段筛选框收窄
+ *  - 之前热力图 max-width 固定且无 auto margin，宽屏下贴左、右侧留白；
+ *  - 短时段筛选框是 flex:1，被拉成整行宽度，像一条空输入框。
+ * ========================================================================== */
+.dash-board.is-focused .dash-stage .heat-detail-grid {
+  /* 保持块级：表格自身居中，图例/汇总仍按热力图下方整行排布 */
+  display: block;
+  width: 100%;
+}
+.dash-board.is-focused .dash-stage .heat-detail-grid .heat-table {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.dash-board.is-focused .dash-stage .heat-detail-grid .heat-row {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+.heat-detail-tool { justify-content: flex-start; }
+.heat-detail-range { flex: 0 1 auto; min-width: 0; }
+.heat-detail-range .control {
+  flex: 0 0 240px;
+  width: 240px;
+  min-width: 0;
+  max-width: 240px;
+}
