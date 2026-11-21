@@ -936,6 +936,13 @@
       toast('已重置全部筛选条件', 'ok');
     });
     row.appendChild(reset);
+
+    // 导出数据：按当前已应用的筛选与账号范围导出（openExport 之前丢失入口）
+    const exp = el('button', 'btn btn-ghost', esc(t('ov.export')));
+    exp.style.marginLeft = '10px';
+    exp.addEventListener('click', () => openExport());
+    row.appendChild(exp);
+
     host.appendChild(bar);
 
     /* ---------- 模块聚焦骨架：正常流 / 主视图 / 底部缩略条 ---------- */

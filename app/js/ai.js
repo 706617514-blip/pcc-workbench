@@ -38,10 +38,15 @@
     { key: 'explain',    page: ['records', 'overview'],     roles: ['L1_HQ_MARKETING', 'L1_HQ_ADMIN', 'L3_STORE'] },
   ];
 
+  // 门店账号的页面键与总部不同（propose / progress / store-info），
+  // 但底层是同一套页面实现，查能力矩阵前先归一化，否则门店会被判成「无任何 AI 能力」。
+  const PAGE_ALIAS = { propose: 'create', progress: 'approval', 'store-info': 'settings' };
+
   function availableCapabilities(page, account) {
+    const p = PAGE_ALIAS[page] || page;
     return CAPABILITIES.map((c) => ({
       key: c.key,
-      enabled: c.page.includes(page) && c.roles.includes(account.role),
+      enabled: c.page.includes(p) && c.roles.includes(account.role),
     }));
   }
 

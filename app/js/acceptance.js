@@ -156,11 +156,19 @@
         '全港门店', ['summary', 'campaigns', 'trend'], 'xlsx');
       const txt = JSON.stringify(rows);
       const noMemberDetail = !/M-\d{4}/.test(txt);
+      // 界面入口也必须存在（回归：导出按钮曾在改版中丢失，引擎测试却一直通过）
+      // 验收可能在 boot 完成前开始：等一下外壳挂载，再查界面入口
+      if (!document.querySelector('#content')) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const uiEntry = !!(document.querySelector('#content')
+        && Array.prototype.some.call(document.querySelectorAll('#content button'),
+          (b) => /导出/.test(b.textContent || '')));
       E.audit('总部营销人员', 'export_data', 'dashboard', '2026-10-01~2026-10-29', '验收导出', '验收');
       const audited = DB.auditLog.some((a) => a.action === 'export_data');
       rec(7, '总览数据导出',
-        rows.length > 10 && noMemberDetail && audited,
-        `导出 ${rows.length} 行；不含会员个人明细=${noMemberDetail}；写入审计记录=${audited}`);
+        rows.length > 10 && noMemberDetail && audited && uiEntry,
+        `导出 ${rows.length} 行；界面入口=${uiEntry}；不含会员个人明细=${noMemberDetail}；写入审计记录=${audited}`);
     } catch (e) { rec(7, '总览数据导出', false, 'ERR ' + e.message); }
 
     /* ---- 8. 审批历史 ---- */
@@ -241,15 +249,18 @@
       // 能力矩阵：解释拦截在活动创建页不可用
       const capsStoreCreate = AI.availableCapabilities('create', store);
       const explainDisabled = capsStoreCreate.find((c) => c.key === 'explain').enabled === false;
+      // 门店实际页面键是 propose；归一化后应与 create 一致，至少 3 项可用（回归：曾全部禁用）
+      const capsStorePropose = AI.availableCapabilities('propose', store);
+      const proposeEnabled = capsStorePropose.filter((c) => c.enabled).length;
       // guardLog 记录
       const guarded = DB.guardLog.length > 0;
       rec(12, 'AI 助手与权限守门',
         hqRes.guard.pass && hqRes.route.target && stRes.guard.pass === false
         && okRes.guard.pass === true && ex.evidence && ex.evidence.length > 0
-        && explainDisabled && guarded,
+        && explainDisabled && proposeEnabled >= 3 && guarded,
         `总部草稿通过=${hqRes.guard.pass} 路由=${hqRes.route.target}；门店超限被拦截=${!stRes.guard.pass}；` +
         `门店授权内通过=${okRes.guard.pass}；解释引用记录 ${ex.evidence ? ex.evidence.length : 0} 条；` +
-        `草稿页禁用解释拦截=${explainDisabled}；守门日志=${guarded}`);
+        `草稿页禁用解释拦截=${explainDisabled}；门店提报页可用能力=${proposeEnabled} 项；守门日志=${guarded}`);
     } catch (e) { rec(12, 'AI 助手与权限守门', false, 'ERR ' + e.message); }
 
     /* ---- 13. 门店范围筛选与多门店活动（PRD 2.1 门店可见性 / 9.1 数据隔离）---- */
