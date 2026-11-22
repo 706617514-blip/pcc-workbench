@@ -152,10 +152,16 @@
     /* ---- 7. 总览数据导出 ---- */
     try {
       const m = E.computeMetrics({ couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY }, hq);
-      const rows = E.buildExport(m, { couponTypes: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY },
-        '全港门店', ['summary', 'campaigns', 'trend'], 'xlsx');
-      const txt = JSON.stringify(rows);
-      const noMemberDetail = !/M-\d{4}/.test(txt);
+      const picked = ['issued', 'claimed', 'used', 'claim_rate', 'redeem_rate', 'paid_amount', 'detail'];
+      const sheets = E.buildExport(m, { couponTypes: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY },
+        '全港门店', picked, 'xlsx', hq);
+      const overview = sheets.find((s) => s.name === '数据总览') || { rows: [] };
+      const detail = sheets.find((s) => s.name === '逐单核销明细') || { rows: [] };
+      const metricsSelected = ['发放数', '领取数', '核销数', '领取率', '核销率', '相关订单实付']
+        .every((label) => overview.rows.some((r) => r[0] === label));
+      const detailColumns = ['核销日期', '会员名称', '购买记录编号', '购买商品', '消费金额', '实付金额']
+        .every((label) => (detail.rows[0] || []).includes(label));
+      const hasMemberDetail = /M-\d{4}/.test(JSON.stringify(detail.rows.slice(1)));
       // 界面入口也必须存在（回归：导出按钮曾在改版中丢失，引擎测试却一直通过）
       // 验收可能在 boot 完成前开始：等一下外壳挂载，再查界面入口
       if (!document.querySelector('#content')) {
@@ -167,8 +173,8 @@
       E.audit('总部营销人员', 'export_data', 'dashboard', '2026-10-01~2026-10-29', '验收导出', '验收');
       const audited = DB.auditLog.some((a) => a.action === 'export_data');
       rec(7, '总览数据导出',
-        rows.length > 10 && noMemberDetail && audited && uiEntry,
-        `导出 ${rows.length} 行；界面入口=${uiEntry}；不含会员个人明细=${noMemberDetail}；写入审计记录=${audited}`);
+        sheets.length === 2 && metricsSelected && detail.rows.length > 10 && detailColumns && hasMemberDetail && audited && uiEntry,
+        `工作表=${sheets.map((s) => s.name).join('/')}；总览指标=${metricsSelected}；逐单 ${Math.max(0, detail.rows.length - 1)} 行；明细列=${detailColumns}；界面入口=${uiEntry}；审计=${audited}`);
     } catch (e) { rec(7, '总览数据导出', false, 'ERR ' + e.message); }
 
     /* ---- 8. 审批历史 ---- */

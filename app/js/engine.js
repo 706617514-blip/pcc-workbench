@@ -879,7 +879,7 @@
       customer_id: cp.customer_id, store_id: cp.store_id || 'PCC-TKO03',
       redeemed_at: cp.redeemed_at, order_amount: orderAmount,
       points_used: usePoints ? Math.floor(orderAmount * 20) : 0,
-      point_value: pointValue, paid_amount: paid,
+      point_value: pointValue, paid_amount: paid, items: [],
       discount_applied: ct.discount_label, coupon_type: cp.coupon_type,
     };
     DB.redemption.push(r);
@@ -1562,11 +1562,12 @@
             const order = Math.round((45 + R() * 130) * 10) / 10;
             const usePoints = ct.stack_points && R() < 0.3;
             const ptVal = usePoints ? Math.round(order * 0.25 * 10) / 10 : 0;
+            const redeemNo = DB.seq.redeem;
             DB.redemption.push({
               redemption_id: 'RD-' + String(DB.seq.redeem++).padStart(6, '0'),
               coupon_id: couponId, transaction_id: 'T-H' + String(DB.seq.redeem).padStart(6, '0'),
               customer_id: cid, store_id: camp.store_id || weightedStoreForSeed(R),
-              redeemed_at: redeemedAt, order_amount: order,
+              redeemed_at: redeemedAt, order_amount: order, items: seededItems(redeemNo),
               points_used: usePoints ? Math.floor(ptVal * 20) : 0, point_value: ptVal,
               paid_amount: Math.round((order - ptVal) * ct.discount * 100) / 100,
               discount_applied: ct.discount_label, coupon_type: camp.coupon_type,
@@ -1729,43 +1730,105 @@
     };
   }
 
+  /** 模拟核销订单的商品明细：由流水号确定性派生，不消耗种子随机数 */
+  function seededItems(seed) {
+    const keys = Object.keys(EXPORT_ITEM_LABELS);
+    const n = Number(seed) || 0;
+    const count = 1 + n % 3;
+    const items = [];
+    for (let i = 0; i < count; i++) {
+      const key = keys[(n + i * 7) % keys.length];
+      if (!items.includes(key)) items.push(key);
+    }
+    return items;
+  }
+
   /* ================================================================
    * 13. 导出（PRD 表 8 看板数据导出 / 9.1）
    * ==============================================================*/
-  function buildExport(metrics, filter, scopeLabel, contents, format) {
+  /* 导出的指标按用户可勾选的粒度定义；口径说明随数据一起落入总览表 */
+  const EXPORT_METRICS = [
+    { key: 'issued', label: '发放数', value: (m) => m.issued, note: '筛选日期内成功发放的券张数' },
+    { key: 'claimed', label: '领取数', value: (m) => m.claimed, note: '筛选日期内完成领取的券张数' },
+    { key: 'used', label: '核销数', value: (m) => m.used, note: '筛选日期内完成核销的券张数' },
+    { key: 'claim_rate', label: '领取率', value: (m) => (m.claim_rate * 100).toFixed(1) + '%', note: '同一发放群体中已领取数／发放数' },
+    { key: 'redeem_rate', label: '核销率', value: (m) => (m.redeem_rate * 100).toFixed(1) + '%', note: '同一发放群体中已核销数／发放数' },
+    { key: 'paid_amount', label: '相关订单实付', value: (m) => m.paid_amount, note: '与已核销券关联订单的实付金额合计' },
+  ];
+
+  const EXPORT_ITEM_LABELS = {
+    espresso: '浓缩咖啡', americano: '美式咖啡', iced_americano: '冰美式',
+    latte: '拿铁', iced_latte: '冰拿铁', flat_white: '馥芮白',
+    cold_brew: '冷萃咖啡', cappuccino: '卡布奇诺', mocha: '摩卡',
+    matcha_latte: '抹茶拿铁', frappuccino: '星冰乐', tea: '茶饮',
+    breakfast_set: '早餐套餐', sandwich: '三明治', cake: '蛋糕',
+    pastry: '烘焙点心', beans_250g: '咖啡豆 250g', single_origin: '单一产地咖啡',
+  };
+
+  /** 逐单核销数据：与看板同样的券种、活动、门店和日期口径 */
+  function buildRedemptionRows(filter, account) {
+    const { couponTypes, campaignIds, dateFrom, dateTo, storeFilter } = filter || {};
+    const typeSet = (couponTypes && couponTypes.length) ? new Set(couponTypes) : null;
+    const campSet = (campaignIds && campaignIds.length) ? new Set(campaignIds) : null;
+    const scopeStore = account && account.scope_type === 'store' ? account.scope_id : (storeFilter || null);
+    const applyStoreFilter = !!scopeStore && scopeStore !== '__all';
+    const campaignById = new Map(DB.campaigns.map((c) => [c.campaign_id, c]));
+    const coupons = new Map();
+    DB.couponInstance.forEach((cp) => {
+      if (typeSet && !typeSet.has(cp.coupon_type)) return;
+      if (campSet && !campSet.has(cp.campaign_id)) return;
+      if (applyStoreFilter && !campaignCoversStore(campaignById.get(cp.campaign_id), scopeStore)) return;
+      coupons.set(cp.coupon_id, cp);
+    });
     const rows = [];
-    if (contents.includes('summary')) {
-      rows.push(['【汇总指标】']);
-      rows.push(['指标', '数值', '口径']);
-      rows.push(['发放数', metrics.issued, '筛选日期内成功发放的券张数']);
-      rows.push(['主动领取数', metrics.claimed, '筛选日期内用户点击“领取”的券张数']);
-      rows.push(['核销数', metrics.used, '筛选日期内完成核销的券张数']);
-      rows.push(['领取率', (metrics.claim_rate * 100).toFixed(1) + '%', '截至统计时点已领取数／发放数（同一发放群体）']);
-      rows.push(['核销率', (metrics.redeem_rate * 100).toFixed(1) + '%', '截至统计时点已核销数／发放数（同一发放群体）']);
-      rows.push(['相关订单实付', metrics.paid_amount, '与已核销券关联订单的实付金额合计']);
-      rows.push([]);
-    }
-    if (contents.includes('campaigns')) {
-      rows.push(['【各活动表现】']);
-      rows.push(['活动', '券种', '折扣', '发放方式', '范围', '发放数', '领取数', '核销数', '相关订单实付']);
-      metrics.byCampaign.forEach((c) => rows.push([
-        c.name, c.coupon_name, c.discount_label,
-        c.mode === 'auto' ? '自动规则' : '人工发放',
-        c.scope_label, c.issued, c.claimed, c.used, c.paid_amount,
-      ]));
-      rows.push([]);
-    }
-    if (contents.includes('trend')) {
-      rows.push(['【每日趋势】']);
-      rows.push(['日期', '发放数', '领取数', '核销数']);
-      metrics.trend.forEach((t) => rows.push([t.date, t.issued, t.claimed, t.used]));
-      rows.push([]);
-    }
-    rows.push(['导出范围', `${scopeLabel} · ${filter.couponTypes.length ? filter.couponTypes.map((k) => COUPON_TYPES[k].name).join('、') : '全部券种 / 活动'} · ${filter.dateFrom} — ${filter.dateTo}`]);
-    rows.push(['数据更新时间', metrics.updated_at]);
-    rows.push(['导出时间', C.NOW_LABEL]);
-    rows.push(['说明', '仅导出当前账号有权查看的汇总数据，不含会员个人明细。']);
+    DB.redemption.forEach((r) => {
+      const cp = coupons.get(r.coupon_id);
+      if (!cp) return;
+      const day = (r.redeemed_at || '').slice(0, 10);
+      if (day < dateFrom || day > dateTo) return;
+      if (applyStoreFilter && r.store_id !== scopeStore) return;
+      const camp = campaignById.get(cp.campaign_id);
+      const customer = DB.byId.get(r.customer_id);
+      const items = r.items || [];
+      rows.push([
+        day, (r.redeemed_at || '').slice(11) || '—',
+        '会员 ' + r.customer_id, customer ? customer.member_tier : '—',
+        COUPON_TYPES[cp.coupon_type] ? COUPON_TYPES[cp.coupon_type].name : cp.coupon_type,
+        camp ? camp.name : '—', storeLabel(r.store_id),
+        r.coupon_id, r.transaction_id || '—',
+        items.length ? items.map((i) => EXPORT_ITEM_LABELS[i] || i).join('、') : '—',
+        r.order_amount, r.discount_applied || '—', r.paid_amount,
+      ]);
+    });
+    rows.sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1]));
     return rows;
+  }
+
+  /**
+   * 按勾选项生成可导出的工作表：数据总览只包含被选中的指标，
+   * 逐单核销明细列出每一笔核销的会员、购买记录和金额。
+   */
+  function buildExport(metrics, filter, scopeLabel, contents, format, account) {
+    const picked = new Set(contents || []);
+    const scopeText = `${scopeLabel} · ${filter.couponTypes && filter.couponTypes.length ? filter.couponTypes.map((k) => COUPON_TYPES[k].name).join('、') : '全部券种 / 活动'} · ${filter.dateFrom} — ${filter.dateTo}`;
+    const overview = [['指标', '数值', '口径']];
+    EXPORT_METRICS.forEach((m) => {
+      if (picked.has(m.key)) overview.push([m.label, m.value(metrics), m.note]);
+    });
+    overview.push([]);
+    overview.push(['导出范围', scopeText]);
+    overview.push(['数据更新时间', metrics.updated_at]);
+    overview.push(['导出时间', C.NOW_LABEL]);
+    const sheets = [{ name: '数据总览', rows: overview }];
+    if (picked.has('detail')) {
+      sheets.push({
+        name: '逐单核销明细',
+        rows: [['核销日期', '核销时间', '会员名称', '会员等级', '券种', '活动', '核销门店',
+          '券编号', '购买记录编号', '购买商品', '消费金额', '使用优惠', '实付金额']]
+          .concat(buildRedemptionRows(filter, account)),
+      });
+    }
+    return sheets;
   }
 
   /* ================================================================

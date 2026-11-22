@@ -23,6 +23,7 @@
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
     coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>',
     alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+    sort: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M7 20l-3-3M7 20l3-3"/><path d="M17 20V4M17 4l-3 3M17 4l3 3"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.63h.08A1.7 1.7 0 0 0 10.11 3.07V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.37 9v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/></svg>',
     collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h5V3M21 8h-5V3M16 21v-5h5M8 21v-5H3"/></svg>',
@@ -36,7 +37,7 @@
     const d = delta && delta.text
       ? `<span class="kpi-delta${delta.good === true ? ' good' : delta.good === false ? ' bad' : ''}">${esc(delta.text)}</span>`
       : '';
-    m.innerHTML = `${icon ? `<div class="metric-icon">${icon}</div>` : ''}
+    m.innerHTML = `
       <div class="metric-label">${esc(label)}</div>
       <div class="metric-value">${esc(value)}</div>
       <div class="metric-foot">${d}<span>${esc(hint)}</span></div>`;
@@ -48,8 +49,7 @@
     const p = el('section', 'dash-panel');
     const head = el('div', 'dash-panel-head');
     head.innerHTML = `<div class="dash-panel-icon">${icon || ''}</div>
-      <div><div class="dash-panel-title">${esc(title)}</div>
-      ${subtitle ? `<div class="dash-panel-sub">${esc(subtitle)}</div>` : ''}</div>`;
+      <div class="dash-panel-title">${esc(title)}</div>`;
     p.appendChild(head);
     const body = el('div', 'dash-panel-body');
     p.appendChild(body);
@@ -76,6 +76,7 @@
     page: 'overview',
     loggedIn: false,
     accountKey: null,
+    loginRole: null,   // 登录第一步选择的身份：null|hq|store
     locale: 'zh-Hans',
     cdEscapeBack: null,   // 活动详情下钻：Esc 先返回「发放结果」再关闭弹窗
     // 看板筛选（PRD 5.1）
@@ -83,7 +84,7 @@
       couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
       storeFilter: null, activityFilter: null, focus: null,
       heatDetail: { view: 'week', from: null, to: null },  // 热力图详情页：快捷区间 + 短时间筛选窗口
-      storeMetric: 'used', drillStore: null,
+      storeMetric: 'used', storeSortDir: -1, drillStore: null,
     },
     // 活动创建页筛选
     create: {
@@ -99,9 +100,9 @@
     approvalHighlight: null,   // 刚提交的活动编号（审批页高亮）
     // AI 抽屉
     ai: {
-      open: false, tab: 'draft', state: 'idle', // idle|generating|result|blocked|failed|denied
+      open: false, state: 'idle', // idle|generating|result|blocked|failed|denied
       history: [], lastResult: null, lastInput: '', lastSent: '',
-      enlarged: false, pos: null, userMoved: false,   // 液态浮窗：放大状态与记忆位置
+      enlarged: false, pos: null, userMoved: false, restore: null,   // 液态浮窗：放大状态、记忆位置与放大前几何
     },
     lastMetrics: null,
   };
@@ -230,6 +231,7 @@
     } else {
       S.loggedIn = false;
       S.accountKey = null;
+      S.loginRole = null;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
       renderLogin(host);
     }
@@ -245,51 +247,123 @@
   }
 
   /* ------------------------------------------------------------ 登录页 */
-  function renderLogin(host) {
+  const GLOBE_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>';
+
+  /** 两步切换时记录当前卡片高度，供高度过渡使用 */
+  function loginCardHeight() {
+    const c = document.querySelector('.login-card');
+    return c ? c.getBoundingClientRect().height : 0;
+  }
+
+  /** 卡片以视口中心为轴向上、下平滑延展到新的自然高度 */
+  function animateLoginCard(card, fromH) {
+    if (!card || !fromH) return;
+    const toH = card.getBoundingClientRect().height;
+    if (Math.abs(toH - fromH) < 1) return;
+    card.style.transition = 'none';
+    card.style.height = fromH + 'px';
+    card.style.overflow = 'hidden';
+    void card.offsetHeight; // 强制回流，锁定起始高度
+    card.style.transition = 'height .46s cubic-bezier(.22,.82,.24,1)';
+    card.style.height = toH + 'px';
+    const finish = () => {
+      card.style.transition = ''; card.style.height = ''; card.style.overflow = '';
+      card.removeEventListener('transitionend', finish);
+    };
+    card.addEventListener('transitionend', finish);
+    setTimeout(finish, 600); // transitionend 未触发时的兜底
+  }
+
+  function renderLogin(host, animateFrom) {
     if (!host) return;
-    const groups = [
-      { key: 'login.hq', list: E.ACCOUNTS.filter((a) => a.scope_type !== 'store') },
-      { key: 'login.store', list: E.ACCOUNTS.filter((a) => a.scope_type === 'store') },
-    ];
     const wrap = el('div', 'login-page');
-    wrap.innerHTML = `<div class="login-card">
-      <div class="login-brand">${global.UI.pccLogo(48)}</div>
-      <h1 class="login-title">${esc(t('login.title'))}</h1>
-      <p class="login-subtitle">${esc(t('login.subtitle'))}</p>
-      <div class="login-groups"></div>
-    </div>`;
-    const groupsBox = $('.login-groups', wrap);
-    groups.forEach((g) => {
-      const sec = el('div', 'login-group');
-      sec.innerHTML = `<div class="login-group-title">${esc(t(g.key))}</div><div class="login-accounts"></div>`;
-      const box = $('.login-accounts', sec);
-      g.list.forEach((a) => {
-        const store = a.scope_type === 'store';
-        const scope = store ? E.utils.storeLabel(a.scope_id) : t('login.scope.all');
-        const perm = store ? t('login.perm.store') : a.desc;
-        const card = el('button', 'login-account');
-        card.type = 'button';
-        card.dataset.account = a.account_id;
-        card.innerHTML = `<span class="login-avatar">${esc(a.badge)}</span>
-          <span class="login-account-main">
-            <b>${esc(a.display_name || a.name)}</b>
-            <span>${esc(scope)}</span>
-          </span>
-          <span class="login-perm">${esc(perm)}</span>`;
-        card.addEventListener('click', () => doLogin(a.account_id));
-        box.appendChild(card);
+    const card = el('div', 'login-card login-card-auth');
+
+    // 语言选择（右上角）：切换后重绘登录页，文案即时生效
+    const loc = C.LOCALES.find((l) => l.key === S.locale) || C.LOCALES[0];
+    const langWrap = el('div', 'login-lang');
+    const langBtn = el('button', 'login-lang-btn');
+    langBtn.type = 'button';
+    langBtn.innerHTML = `${GLOBE_SVG}<span>${esc(loc.label)}</span>`;
+    const langPanel = el('div', 'login-lang-panel');
+    langPanel.style.display = 'none';
+    C.LOCALES.forEach((l) => {
+      const it = el('button', 'login-lang-item' + (l.key === S.locale ? ' on' : ''), esc(l.label));
+      it.type = 'button';
+      it.addEventListener('click', (e) => {
+        e.stopPropagation();
+        S.locale = l.key;
+        renderLogin(host);
       });
-      groupsBox.appendChild(sec);
+      langPanel.appendChild(it);
     });
+    let langOpen = false;
+    langBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      langOpen = !langOpen;
+      langPanel.style.display = langOpen ? 'block' : 'none';
+    });
+    langWrap.appendChild(langBtn);
+    langWrap.appendChild(langPanel);
+    card.appendChild(langWrap);
+
+    // 品牌：图标在上、英文名在下，整体左右居中
+    const brand = el('div', 'login-brand');
+    brand.innerHTML = `${global.UI.pccLogo(52)}<span class="login-brand-name">PACIFIC<br>COFFEE</span>`;
+    card.appendChild(brand);
+
+    if (!S.loginRole) {
+      const roles = el('div', 'login-roles');
+      [{ key: 'hq', label: t('login.role.hq') }, { key: 'store', label: t('login.role.store') }].forEach((r) => {
+        const b = el('button', 'login-role', esc(r.label));
+        b.type = 'button';
+        b.addEventListener('click', () => { S.loginRole = r.key; renderLogin(host, loginCardHeight()); });
+        roles.appendChild(b);
+      });
+      card.appendChild(roles);
+    } else {
+      const back = el('button', 'login-back', esc(t('login.back')));
+      back.type = 'button';
+      back.addEventListener('click', () => { S.loginRole = null; renderLogin(host, loginCardHeight()); });
+      card.appendChild(back);
+
+      const tag = el('div', 'login-role-tag', esc(S.loginRole === 'store' ? t('login.role.store') : t('login.role.hq')));
+      card.appendChild(tag);
+
+      const form = el('form', 'login-form');
+      form.innerHTML = `
+        <label class="login-field"><span>${esc(t('login.user'))}</span>
+          <input type="text" autocomplete="username" placeholder="${esc(t('login.user'))}"></label>
+        <label class="login-field"><span>${esc(t('login.password'))}</span>
+          <input type="password" autocomplete="current-password" placeholder="${esc(t('login.password'))}"></label>
+        <button class="login-submit" type="submit">${esc(t('login.signin'))}</button>`;
+      // 测试版：不校验账号密码，按第一步身份直接进入对应工作台
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        doLogin(S.loginRole === 'store' ? 'store.taikoo01' : 'hq.marketing');
+      });
+      card.appendChild(form);
+    }
+    wrap.appendChild(card);
     host.innerHTML = '';
     host.appendChild(wrap);
+    animateLoginCard(card, animateFrom);
+    if (!loginLangBound) {
+      loginLangBound = true;
+      document.addEventListener('click', (e) => {
+        const panel = document.querySelector('.login-lang-panel');
+        if (panel && !e.target.closest('.login-lang')) panel.style.display = 'none';
+      });
+    }
   }
+  let loginLangBound = false;
 
   function doLogin(accountId) {
     const acc = E.ACCOUNTS.find((a) => a.account_id === accountId);
     if (!acc) return;
     S.loggedIn = true;
     S.accountKey = accountId;
+    S.loginRole = null;
     sessionStorage.setItem('pcc.accountKey', accountId);
     E.audit(acc.display_name || acc.name, 'login', 'staff_account', accountId,
       `${acc.display_name || acc.name} 登录工作台（${isStore() ? E.utils.storeLabel(acc.scope_id) : '全港'}）`, '演示登录');
@@ -308,6 +382,7 @@
     }
     S.loggedIn = false;
     S.accountKey = null;
+    S.loginRole = null;
     S.page = null;
     S.ai.open = false;
     sessionStorage.removeItem('pcc.accountKey');
@@ -393,8 +468,6 @@
         <div class="acc-avatar-lg" id="uAvatarLg"></div>
         <div><div class="acc-name" id="uNameLg"></div><div class="acc-scope" id="uDesc"></div></div>
       </div>
-      <div class="acc-section-label">切换身份</div>
-      <div id="accountSwitch"></div>
       <div class="acc-divider"></div>
       <button class="acc-action" id="accSettings">${DASH_ICONS.settings}<span id="accSettingsLabel">${esc(t('nav.settings'))}</span><span class="acc-arrow">→</span></button>
       <button class="acc-action" id="accLogout"><span class="acc-ico">↪</span><span>${esc(t('login.out'))}</span><span class="acc-arrow">→</span></button>`;
@@ -409,34 +482,6 @@
 
     // 语言面板：点击外部收起
     document.addEventListener('click', () => { langOpen = false; langPanel.style.display = 'none'; });
-
-    // 账号切换器（演示用；真实系统由登录态确定操作人）
-    const sel = singleSelect({
-      options: E.ACCOUNTS.map((a) => ({
-        v: a.account_id,
-        label: `${a.display_name || a.name}${a.scope_type === 'store' ? '（' + E.utils.storeLabel(a.scope_id) + '）' : '（全港）'}`,
-      })),
-      value: S.accountKey,
-      onChange: (v) => {
-        S.accountKey = v;
-        sessionStorage.setItem('pcc.accountKey', v);
-        S.create.applied = false; S.create.result = null;
-        S.create.filters.storeScope = [];
-        S.manageTab = 'all'; S.storeManageTab = 'submitted';
-        S.ov.couponTypes = []; S.ov.campaignIds = [];
-        S.settings.denied = false;
-        if (isStore()) { S.ov.storeFilter = account().scope_id; } else { S.ov.storeFilter = null; }
-        E.audit(account().display_name || account().name, 'switch_account', 'staff_account', v,
-          `切换工作台账号至 ${v}`, '演示身份切换');
-        const next = resolvePage(S.page);
-        applyHashTab(next);
-        if (next !== S.page) { setHash(next); }
-        else render();
-        toast(`已切换为${account().display_name || account().name} · ${isStore() ? E.utils.storeLabel(account().scope_id) : '全港范围'}`, 'ok');
-      },
-    });
-    sel.style.width = '100%';
-    $('#accountSwitch', root).appendChild(sel);
 
     // 账号设置入口（总部=账号与权限，门店=本店信息）
     $('#accSettings', root).addEventListener('click', () => {
@@ -884,31 +929,31 @@
       .filter((k) => !store || true)
       .map((k) => ({ v: k, label: `${E.COUPON_TYPES[k].name} · ${E.COUPON_TYPES[k].discount_label}` }));
     const fCoupon = el('div', 'field field-grow');
-    fCoupon.innerHTML = `<label>${esc(t('ov.filter.coupon'))}</label>`;
     const ms = multiSelect({
       placeholder: t('ov.all_coupons'), allLabel: t('ov.all_coupons'),
       options: couponOptions, values: S.ov.couponTypes, exclusiveAll: true,
-      onChange: (v) => { S.ov.couponTypes = v; markPending(); },
-      onApply: () => render(),
+      staged: true, onStage: markPending,
+      // 勾选期间只暂存，不刷新页面；由「应用筛选」统一提交
+      onChange: (v) => { S.ov.couponTypes = v; },
     });
     fCoupon.appendChild(ms);
     fCoupon.style.flex = '0 0 300px';
     row.appendChild(fCoupon);
 
+    let ss = null;
     if (store) {
       const f = el('div', 'field');
-      f.innerHTML = `<label>${esc(t('ov.filter.store'))}</label>`;
       const ctrl = el('div', 'control locked');
       ctrl.innerHTML = `<span class="ctrl-value">${esc(E.utils.storeLabel(myStore))}</span>`;
       f.appendChild(ctrl); f.style.flex = '0 0 200px';
       row.appendChild(f);
     } else {
       const f = el('div', 'field');
-      f.innerHTML = `<label>${esc(t('ov.filter.store'))}</label>`;
-      const ss = singleSelect({
+      ss = singleSelect({
         options: [{ v: '__all', label: t('cr.all_hk') }].concat(DB.stores.map((s) => ({ v: s.store_id, label: s.name }))),
         value: S.ov.storeFilter || '__all',
-        onChange: (v) => { S.ov.storeFilter = (v === '__all' ? null : v); render(); },
+        staged: true, onStage: markPending,
+        onChange: (v) => { S.ov.storeFilter = (v === '__all' ? null : v); },
       });
       ss.style.minWidth = '180px';
       f.appendChild(ss); f.style.flex = '0 0 190px';
@@ -916,11 +961,14 @@
     }
 
     const fDate = el('div', 'field');
-    fDate.innerHTML = `<label>${esc(t('ov.filter.date'))}</label>`;
     const rp = rangePicker({
       from: S.ov.dateFrom, to: S.ov.dateTo, today: C.DATA_TODAY,
       maxDate: C.DATA_TODAY,
-      onChange: (a, b) => { if (a && b) { S.ov.dateFrom = a; S.ov.dateTo = b; render(); } },
+      staged: true, onStage: markPending,
+      onChange: (a, b) => {
+        if (a && b) { S.ov.dateFrom = a; S.ov.dateTo = b; }
+        else { S.ov.dateFrom = '2026-10-01'; S.ov.dateTo = C.DATA_TODAY; }
+      },
     });
     rp.style.minWidth = '260px';
     fDate.appendChild(rp); fDate.style.flex = '0 0 280px';
@@ -930,7 +978,11 @@
     apply.style.minWidth = '150px';
     apply.dataset.role = 'apply';
     apply.dataset.apply = 'pending';
-    apply.addEventListener('click', () => { render(); toast('已应用筛选条件', 'ok'); });
+    apply.addEventListener('click', () => {
+      // 统一提交三项暂存筛选，再一次性刷新页面
+      ms.commit(); if (ss) ss.commit(); rp.commit();
+      render(); toast('已应用筛选条件', 'ok');
+    });
     row.appendChild(apply);
 
     const reset = el('button', 'btn btn-ghost', '重置');
@@ -1088,8 +1140,10 @@
       const totalPaid = all.reduce((a, v) => a + v.paid, 0) || 1;
       return all.map((v) => Object.assign({}, v, { share: v.count / totalCount, paidShare: v.paid / totalPaid }));
     })();
-    const storeRank = (metric) => storeStats.slice().sort((a, b) =>
-      (metric === 'paid' ? b.paid - a.paid : b.count - a.count) || b.count - a.count);
+    const storeRank = (metric) => storeStats.slice().sort((a, b) => {
+      const delta = metric === 'paid' ? a.paid - b.paid : a.count - b.count;
+      return ((delta || a.count - b.count) * S.ov.storeSortDir);
+    });
     const scopeLabel = store ? E.utils.storeLabel(myStore)
       : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
@@ -1283,7 +1337,7 @@
     const trendLow = primaryTrend.length ? Math.min(...primaryTrend) : 0;
     const chartCard = el('div', 'chart-card dash-chart');
     chartCard.innerHTML = `<div class="chart-head">
-        <div class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend.simple'))}</div>
+        <div class="chart-title-wrap"><span class="chart-icon">${DASH_ICONS.chart}</span><span class="chart-title">${esc(t(store ? 'ov.trend.store' : 'ov.trend.simple'))}</span></div>
         <div class="legend">
           ${store ? '' : `<span><i class="lg-issued"></i>${esc(t('ov.legend.issued'))}</span>`}
           <span><i class="${store ? 'lg-issued' : 'lg-used'}"></i>${esc(t('ov.legend.used'))}</span>
@@ -1328,6 +1382,7 @@
 
     /* ---------- 模块 3.5：门店对比（核销数 / 实付，TOP5） ---------- */
     let storeDetailBuild = null;
+    let redrawStoreRank = null;
     function openStoreDetail(sid) {
       if (S.ov.focus !== 'stores') focusTo('stores');
       if (storeDetailBuild) storeDetailBuild(sid);
@@ -1348,10 +1403,23 @@
           S.ov.storeMetric = v;
           Object.keys(storeSegBtns).forEach((k) => storeSegBtns[k].classList.toggle('on', k === v));
           drawStoreBars();
+          if (redrawStoreRank) redrawStoreRank();
         });
         storeSegBtns[v] = b; storeSeg.appendChild(b);
       });
       storeHead.appendChild(storeSeg);
+      const sortBtn = el('button', 'icon-tip sort-toggle' + (S.ov.storeSortDir === 1 ? ' asc' : ''));
+      sortBtn.type = 'button';
+      sortBtn.setAttribute('aria-label', t('ov.sort.toggle'));
+      sortBtn.innerHTML = `${DASH_ICONS.sort}<span class="icon-tip-text">${esc(t('ov.sort.toggle'))}</span>`;
+      sortBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        S.ov.storeSortDir = -S.ov.storeSortDir;
+        sortBtn.classList.toggle('asc', S.ov.storeSortDir === 1);
+        drawStoreBars();
+        if (redrawStoreRank) redrawStoreRank();
+      });
+      storeHead.appendChild(sortBtn);
       const storeHost = el('div', 'store-host');
       storeHost.appendChild(storePanel.root);
       const storeDetailHost = el('div', 'store-detail-host');
@@ -1445,6 +1513,7 @@
             rankList.appendChild(b);
           });
         }
+        redrawStoreRank = renderRank;
 
         function renderDrill(v) {
           drill.innerHTML = '';
@@ -1632,8 +1701,7 @@
     const heat = el('section', 'dash-panel heat-panel');
     const heatHead = el('div', 'dash-panel-head heat-head');
     heatHead.innerHTML = `<div class="dash-panel-icon">${DASH_ICONS.chart}</div>
-      <div><div class="dash-panel-title">${esc(t('ov.heat.title'))}</div>
-      <div class="dash-panel-sub">${esc(t('ov.heat.sub'))}</div></div>`;
+      <div class="dash-panel-title">${esc(t('ov.heat.title'))}</div>`;
     heat.appendChild(heatHead);
     const heatBody = el('div', 'dash-panel-body heat-body');
     heat.appendChild(heatBody);
@@ -1828,8 +1896,17 @@
     const acc = account();
     const store = isStore();
     const scopeLabel = store ? E.utils.storeLabel(acc.scope_id) : '全港门店';
-    const contents = { summary: true, campaigns: true, trend: true };
+    const contents = {
+      issued: true, claimed: true, used: true,
+      claim_rate: true, redeem_rate: true, paid_amount: true,
+      detail: true,
+    };
     let format = 'xlsx';
+
+    const metricCards = [
+      ['issued', '发放数'], ['claimed', '领取数'], ['used', '核销数'],
+      ['claim_rate', '领取率'], ['redeem_rate', '核销率'], ['paid_amount', '相关订单实付'],
+    ].map(([k, label]) => `<div class="check-card on" data-k="${k}"><span class="check-box">${SVG.check}</span><span>${label}</span></div>`).join('');
 
     const body = el('div');
     body.innerHTML = `
@@ -1839,10 +1916,11 @@
       </div>
       <div class="form-item" style="margin-bottom:22px">
         <label>导出内容</label>
-        <div class="check-cards" id="expContents">
-          <div class="check-card on" data-k="summary"><span class="check-box">${SVG.check}</span><span>汇总指标</span></div>
-          <div class="check-card on" data-k="campaigns"><span class="check-box">${SVG.check}</span><span>各活动表现</span></div>
-          <div class="check-card on" data-k="trend"><span class="check-box">${SVG.check}</span><span>每日趋势</span></div>
+        <div class="export-group-label">数据总览</div>
+        <div class="check-cards" id="expContents">${metricCards}</div>
+        <div class="export-group-label">逐单数据</div>
+        <div class="check-cards detail-cards" id="expDetail">
+          <div class="check-card on" data-k="detail"><span class="check-box">${SVG.check}</span><span>逐单核销明细</span></div>
         </div>
       </div>
       <div class="form-item" style="margin-bottom:20px">
@@ -1851,12 +1929,11 @@
           <button class="on" data-f="xlsx">XLSX</button><button data-f="csv">CSV</button>
         </div>
       </div>
-      <div class="notice">仅导出当前账号可查看的汇总数据，不含会员个人明细。</div>
     `;
     const rangeEl = $('#expRange', body);
     rangeEl.textContent = `${scopeLabel} · ${S.ov.couponTypes.length ? S.ov.couponTypes.map((k) => E.COUPON_TYPES[k].name).join('、') : '全部券种 / 活动'} · ${S.ov.dateFrom} — ${S.ov.dateTo}`;
 
-    $$('#expContents .check-card', body).forEach((c) => {
+    $$('#expContents .check-card, #expDetail .check-card', body).forEach((c) => {
       c.addEventListener('click', () => {
         const k = c.dataset.k;
         contents[k] = !contents[k];
@@ -1879,10 +1956,10 @@
       if (!picked.length) { toast('请至少选择一项导出内容', 'warn'); return; }
       try {
         const metrics = E.computeMetrics(S.ov, acc);
-        const rows = E.buildExport(metrics, S.ov, scopeLabel, picked, format);
-        downloadFile(rows, format, `PCC_营销数据_${S.ov.dateFrom}_${S.ov.dateTo}`);
+        const sheets = E.buildExport(metrics, S.ov, scopeLabel, picked, format, acc);
+        downloadFile(sheets, format, `PCC_营销数据_${S.ov.dateFrom}_${S.ov.dateTo}`);
         E.audit(acc.display_name || acc.name, 'export_data', 'dashboard', `${S.ov.dateFrom}~${S.ov.dateTo}`,
-          `导出汇总数据（${picked.join('、')}）格式 ${format.toUpperCase()}，范围 ${scopeLabel}`,
+          `导出 ${picked.length} 项内容（${picked.join('、')}）格式 ${format.toUpperCase()}，范围 ${scopeLabel}`,
           '看板导出');
         mo.close();
         toast('导出成功，操作人、时间及筛选范围已写入审计记录', 'ok');
@@ -1892,9 +1969,14 @@
     });
   }
 
-  function downloadFile(rows, format, baseName) {
+  function downloadFile(payload, format, baseName) {
+    // 兼容旧的单行表调用；新导出传入 [{ name, rows }]，每个名称对应一个工作表
+    const sheets = Array.isArray(payload) && payload.length && Array.isArray(payload[0].rows)
+      ? payload : [{ name: '导出数据', rows: payload }];
     let blob, name;
     if (format === 'csv') {
+      const rows = sheets.length === 1 ? sheets[0].rows
+        : sheets.reduce((all, s) => all.concat([[`【${s.name}】`]], s.rows, [[]]), []);
       const csv = '\ufeff' + rows.map((r) => r.map((c) => {
         const s = String(c == null ? '' : c);
         return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -1903,16 +1985,19 @@
       name = baseName + '.csv';
     } else {
       // 生成 SpreadsheetML 2003 XML —— Excel 可直接打开，保留中文与多工作表结构
-      const sheetRows = rows.map((r) => '<Row>' + r.map((c) => {
-        const isNum = typeof c === 'number';
-        return `<Cell><Data ss:Type="${isNum ? 'Number' : 'String'}">${esc(c == null ? '' : c)}</Data></Cell>`;
-      }).join('') + '</Row>').join('');
+      const worksheets = sheets.map((s) => {
+        const sheetRows = s.rows.map((r, i) => '<Row>' + r.map((c) => {
+          const isNum = typeof c === 'number';
+          return `<Cell${i === 0 ? ' ss:StyleID="hdr"' : ''}><Data ss:Type="${isNum ? 'Number' : 'String'}">${esc(c == null ? '' : c)}</Data></Cell>`;
+        }).join('') + '</Row>').join('');
+        return `<Worksheet ss:Name="${esc(s.name.slice(0, 31))}"><Table>${sheetRows}</Table></Worksheet>`;
+      }).join('');
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
  <Styles><Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="#FBEEF0" ss:Pattern="Solid"/></Style></Styles>
- <Worksheet ss:Name="营销数据导出"><Table>${sheetRows}</Table></Worksheet>
+ ${worksheets}
 </Workbook>`;
       blob = new Blob(['\ufeff' + xml], { type: 'application/vnd.ms-excel' });
       name = baseName + '.xls';
@@ -3488,11 +3573,42 @@
   const AI_POS_KEY = 'pcc_ai_float_pos';
   function moveAIFloat(d, x, y) {
     const r = d.getBoundingClientRect();
-    const maxX = Math.max(8, window.innerWidth - r.width - 8);
-    const maxY = Math.max(8, window.innerHeight - r.height - 8);
-    d.style.left = Math.max(8, Math.min(x, maxX)) + 'px';
-    d.style.top = Math.max(8, Math.min(y, maxY)) + 'px';
+    const p = clampAIXY(x, y, r.width, r.height);
+    d.style.left = p.x + 'px';
+    d.style.top = p.y + 'px';
     d.style.right = 'auto'; d.style.bottom = 'auto';
+  }
+  function aiTargetSize(enlarged) {
+    return enlarged
+      ? { w: Math.min(816, Math.max(280, window.innerWidth - 48)), h: Math.min(1180, Math.max(240, window.innerHeight - 48)) }
+      : { w: Math.min(408, Math.max(280, window.innerWidth - 32)), h: Math.min(620, Math.max(240, window.innerHeight - 48)) };
+  }
+  function clampAIXY(x, y, w, h) {
+    return {
+      x: Math.round(Math.max(8, Math.min(x, Math.max(8, window.innerWidth - w - 8)))),
+      y: Math.round(Math.max(8, Math.min(y, Math.max(8, window.innerHeight - h - 8)))),
+    };
+  }
+  function persistAIPos(x, y) {
+    S.ai.pos = { x: Math.round(x), y: Math.round(y) };
+    try { localStorage.setItem(AI_POS_KEY, JSON.stringify(S.ai.pos)); } catch (e) { /* 隐私模式忽略 */ }
+  }
+  function setAIPosition(d, x, y, instant) {
+    if (instant) d.classList.add('ai-no-anim');
+    d.style.left = Math.round(x) + 'px';
+    d.style.top = Math.round(y) + 'px';
+    d.style.right = 'auto'; d.style.bottom = 'auto';
+    if (instant) { void d.offsetWidth; d.classList.remove('ai-no-anim'); }
+  }
+  function lockAIHeight(d, h) {
+    d.classList.add('ai-no-anim');
+    d.style.height = Math.round(h) + 'px';
+    void d.offsetWidth;
+    d.classList.remove('ai-no-anim');
+  }
+  function releaseAIHeight(d) {
+    clearTimeout(d._aiHeightTimer);
+    d._aiHeightTimer = setTimeout(() => { d.style.height = ''; }, 480);
   }
   function saveAIFloat(d) {
     const r = d.getBoundingClientRect();
@@ -3553,16 +3669,22 @@
   function toggleAI(open) {
     S.ai.open = open;
     const d = $('#aiDrawer');
-    // 首次打开锚定到检索框正下方；用户手动拖动过则沿用其位置
     if (open && d) {
-      if (S.ai.userMoved && S.ai.pos && Number.isFinite(S.ai.pos.x)) moveAIFloat(d, S.ai.pos.x, S.ai.pos.y);
-      else anchorAIBelowSearch(d);
+      // 每次从检索框重新打开：清掉拖动与放大记忆，固定锚到检索框下方后重新滑出
+      S.ai.enlarged = false;
+      S.ai.userMoved = false;
+      S.ai.pos = null;
+      S.ai.restore = null;
+      d.classList.remove('enlarged');
+      clearTimeout(d._aiHeightTimer);
+      d.style.height = '';
+      try { localStorage.removeItem(AI_POS_KEY); } catch (e) { /* 隐私模式忽略 */ }
+      d.classList.add('ai-no-anim');
+      anchorAIBelowSearch(d);
+      void d.offsetWidth;
+      d.classList.remove('ai-no-anim');
     }
     renderAI();
-    if (open && !S.ai.history.length) {
-      S.ai.history.push({ role: 'ai', kind: 'welcome' });
-      renderAI();
-    }
   }
 
   function renderAI() {
@@ -3585,9 +3707,8 @@
         <div class="ai-head-logo">${global.UI.pccLogo(38)}</div>
         <div style="flex:1;min-width:0">
           <h2>${esc(t('ai.title'))}</h2>
-          <div class="sub">${esc(acc.display_name || acc.name)} · ${esc(acc.scope_type === 'store' ? E.utils.storeLabel(acc.scope_id) : '全港范围')}</div>
         </div>
-        <button class="ai-min" id="aiMin" title="${esc(t('ai.enlarge'))}">${DASH_ICONS.expand}</button>
+        <button class="ai-min" id="aiMin" title="${esc(t('ai.enlarge'))}">${S.ai.enlarged ? DASH_ICONS.collapse : DASH_ICONS.expand}</button>
         <button class="modal-close" id="aiClose">${SVG.close}</button>
       </div>
       <div class="ai-body" id="aiBody"></div>
@@ -3600,46 +3721,52 @@
 
     $('#aiClose', d).addEventListener('click', () => toggleAI(false));
     $('#aiMin', d).addEventListener('click', () => {
-      S.ai.enlarged = !S.ai.enlarged;
-      // 放大/还原只改变尺寸：先记录左上角，重绘后再夹回视口内，避免放大后溢出屏幕
-      const keep = d.getBoundingClientRect();
-      const kx = keep.left, ky = keep.top;
-      renderAI();
-      requestAnimationFrame(() => {
-        moveAIFloat(d, kx, ky);
-        saveAIFloat(d);
-        const b = $('#aiBody', d);
-        if (b) b.scrollTop = b.scrollHeight;
-      });
-    });
-
-    // 快捷入口（按角色与当前页面启用，其余禁用）
-    const tabsBox = el('div', 'ai-tabs');
-    caps.forEach((c) => {
-      const b = el('button', 'ai-tab' + (S.ai.tab === c.key ? ' on' : ''), esc(t('ai.tab.' + c.key)));
-      if (!c.enabled) b.disabled = true;
-      b.addEventListener('click', () => {
-        if (!c.enabled) { toast(t('ai.state.denied'), 'warn'); return; }
-        S.ai.tab = c.key;
-        runQuickCapability(c.key);
-      });
-      tabsBox.appendChild(b);
+      const cur = d.getBoundingClientRect();
+      if (!S.ai.enlarged) {
+        const target = aiTargetSize(true);
+        // 记住放大前的几何，之后无论拖到哪里都沿原路还原
+        S.ai.restore = { x: Math.round(cur.left), y: Math.round(cur.top), w: cur.width, h: cur.height };
+        // 先锁住当前实际高度，避免 auto → max-height 时从 620px 起跳
+        lockAIHeight(d, cur.height);
+        // 上边缘不动，以中心向两侧展开，高度向下延伸
+        const x = cur.left + (cur.width - target.w) / 2;
+        const pos = clampAIXY(x, cur.top, target.w, target.h);
+        S.ai.enlarged = true;
+        setAIPosition(d, pos.x, pos.y, false);
+        renderAI();
+        d.style.height = Math.round(target.h) + 'px';
+        persistAIPos(pos.x, pos.y);
+        releaseAIHeight(d);
+      } else {
+        const back = S.ai.restore || (() => {
+          const s = aiTargetSize(false);
+          const p = clampAIXY(cur.left, cur.top, s.w, s.h);
+          return { x: p.x, y: p.y, w: s.w, h: s.h };
+        })();
+        const pos = clampAIXY(back.x, back.y, back.w, back.h);
+        lockAIHeight(d, cur.height);
+        S.ai.enlarged = false;
+        setAIPosition(d, pos.x, pos.y, false);
+        renderAI();
+        d.style.height = Math.round(back.h) + 'px';
+        persistAIPos(pos.x, pos.y);
+        S.ai.restore = null;
+        releaseAIHeight(d);
+      }
+      const b = $('#aiBody', d);
+      if (b) b.scrollTop = b.scrollHeight;
     });
 
     const body = $('#aiBody', d);
-    body.appendChild(tabsBox);
+    const enabledCaps = caps.filter((c) => c.enabled).map((c) => c.key);
 
-    // 欢迎 / 快捷提问
-    if (!S.ai.history.length) S.ai.history.push({ role: 'ai', kind: 'welcome' });
-    if (caps.some((c) => c.enabled) && S.ai.state === 'idle') {
+    // 用户可能想问的问题（直接提问，不再展示不可用的能力入口）
+    if (enabledCaps.length && S.ai.state === 'idle') {
       const qa = el('div', 'quick-asks');
-      const asks = askSuggestions(acc);
-      asks.forEach((a) => {
+      askSuggestions(acc, enabledCaps).forEach((a) => {
         const b = el('button', 'quick-ask', esc(a.label));
-        b.addEventListener('click', () => {
-          $('#aiInput', d).value = a.text;
-          sendAI(a.text);
-        });
+        b.title = a.text;
+        b.addEventListener('click', () => sendAI(a.text, a.action));
         qa.appendChild(b);
       });
       body.appendChild(qa);
@@ -3670,39 +3797,66 @@
     const input = $('#aiInput', d);
     if (send) send.addEventListener('click', () => sendAI(input.value));
     if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendAI(input.value); });
-    body.scrollTop = body.scrollHeight;
+    // 首次打开停在问题区；有对话后跟随最新消息
+    body.scrollTop = (S.ai.state === 'idle' && S.ai.history.length <= 1) ? 0 : body.scrollHeight;
   }
 
-  function askSuggestions(acc) {
+  function askSuggestions(acc, enabled) {
+    const has = (k) => enabled.includes(k);
     const store = acc.scope_type === 'store';
-    if (S.page === 'create') {
-      return store
-        ? [{ label: '本地化门店活动', text: '把总部回流活动改成太古城店周末买一送一，发给附近会员。' },
-           { label: '创建本店草稿', text: '为本店连续 30 天未消费的会员创建一个 8.5 折回流活动。' }]
-        : [{ label: '生成回流活动草稿', text: '为连续 30 天未消费会员创建 8 折回流活动，覆盖全港门店。' },
-           { label: '生成生日活动草稿', text: '为生日当月会员创建 5 折生日活动，自动发放。' }];
+    const page = ({ propose: 'create', progress: 'approval', 'store-info': 'settings' })[S.page] || S.page;
+    let pool = [];
+
+    if (page === 'create') {
+      pool = store
+        ? [
+            { label: '本店 8.5 折回流活动，权限允许吗？', text: '本店做 8.5 折回流活动，权限上允许吗？', action: 'permission' },
+            { label: '本店这批券预计能核销多少？', text: '按本店当前活动配置，预计能核销多少张券？', action: 'predict' },
+            { label: '把总部活动改成本店周末专场', text: '把总部回流活动改成太古城店周末买一送一，发给附近会员。', action: 'localize' },
+          ]
+        : [
+            { label: '回流券用 8 折合适吗？', text: '回流券用 8 折合适吗？给我一个折扣建议。', action: 'value' },
+            { label: '这批券预计能核销多少？', text: '按当前活动配置，预计能核销多少张券？', action: 'predict' },
+            { label: '帮我写一段生日券短信文案', text: '帮我写一段生日券会员短信文案。', action: 'copy' },
+          ];
+    } else if (page === 'records') {
+      pool = [
+        { label: '最近一次为什么没发出去？', text: '最近一次发送失败是什么原因？', action: 'explain' },
+        { label: 'R-1003 为什么失败？', text: 'R-1003 为什么失败？引用原始记录说明。', action: 'explain' },
+        { label: '这次拦截影响了多少会员？', text: '这次拦截影响了多少会员？原因是什么？', action: 'explain' },
+      ];
+    } else if (page === 'manage') {
+      pool = [
+        { label: '我这个账号能启停哪些规则？', text: '检查当前账号可启停的自动规则范围。', action: 'permission' },
+        { label: '当前账号能修改哪些活动设置？', text: '检查当前账号可修改的活动设置范围。', action: 'permission' },
+        { label: '帮我写一段核销提醒文案', text: '帮我写一段提醒会员尽快核销的短信文案。', action: 'copy' },
+      ];
+    } else {
+      pool = [
+        { label: '回流券用 8 折合适吗？', text: '回流券用 8 折合适吗？给我一个折扣建议。', action: 'value' },
+        { label: '这批券预计能核销多少？', text: '按当前活动配置，预计能核销多少张券？', action: 'predict' },
+        { label: '最近一次为什么没发出去？', text: '最近一次发送失败是什么原因？', action: 'explain' },
+      ];
     }
-    if (S.page === 'records') {
-      return [{ label: '解释最近失败', text: '最近一次发送失败是什么原因？' },
-              { label: '解释拦截 R-1003', text: 'R-1003 为什么失败？引用原始记录说明。' }];
-    }
-    if (S.page === 'manage') {
-      return [{ label: '检查自动规则权限', text: '检查当前账号可启停的自动规则范围。' }];
-    }
-    return [{ label: '权限检查', text: '检查当前账号的活动创建权限范围。' }];
+    return pool.filter((a) => has(a.action)).slice(0, 3);
+  }
+
+  function inferAIAction(text, enabled, acc) {
+    const t = String(text || '');
+    const has = (k) => enabled.includes(k);
+    if (/为什么|为何|原因|失败|拦截|没发|未发送|没收到|收不到/.test(t) && has('explain')) return 'explain';
+    if (/面额|几折|折扣|优惠力度|定价|合适吗/.test(t) && has('value')) return 'value';
+    if (/预计|预测|估计|能核销|核销多少|会有多少/.test(t) && has('predict')) return 'predict';
+    if (/文案|短信|标题|话术|怎么写/.test(t) && has('copy')) return 'copy';
+    if (acc.scope_type === 'store' && /本地|本店|改成|周末|门店/.test(t) && has('localize')) return 'localize';
+    if (/权限|允许|范围|启停|能修改|能创建|可以.*吗/.test(t) && has('permission')) return 'permission';
+    return 'draft';
   }
 
   function renderMsg(h, drawer) {
     const wrap = el('div', 'msg ' + (h.role === 'user' ? 'user' : 'ai'));
     if (h.role === 'user') {
       wrap.innerHTML = `<div class="msg-bubble">${esc(h.text)}</div>`;
-      return wrap;
-    }
-    const b = el('div', 'msg-bubble');
-    if (h.kind === 'welcome') {
-      b.style.background = '#F6F6F7';
-      b.textContent = t('ai.welcome');
-      wrap.appendChild(b);
       return wrap;
     }
     // AI 结构化结果
@@ -3894,55 +4048,10 @@
     return frag;
   }
 
-  function runQuickCapability(key) {
-    const acc = account();
-    const ctx = () => ({
-      sessionId: sessionId(),
-      currentDraft: S.create.draftPrefill,
-      audienceSize: (S.create.result || {}).total || 0,
-    });
-    if (key === 'permission') {
-      pushResult(AI.permissionCheck(acc, { sessionId: sessionId() , currentDraft: S.create.draftPrefill }));
-      return;
-    }
-    if (key === 'value') {
-      pushResult(AI.suggestValue(acc, ctx()));
-      return;
-    }
-    if (key === 'copy') {
-      pushResult(AI.generateCopy(acc, ctx()));
-      return;
-    }
-    if (key === 'predict') {
-      pushResult(AI.predictRedemption(acc, ctx()));
-      return;
-    }
-    if (key === 'explain') {
-      if (S.page !== 'records' && S.page !== 'overview') { toast(t('ai.state.denied'), 'warn'); return; }
-      pushResult(AI.explainBlock('最近一次发送失败', acc));
-      return;
-    }
-    // draft / localize 需要用户输入，给出提示
-    const d = $('#aiDrawer');
-    const inp = d && $('#aiInput', d);
-    if (inp) { inp.focus(); inp.placeholder = key === 'localize' ? '描述要本地化的门店活动…' : '描述活动需求…'; }
-    toast(key === 'localize' ? '请输入要本地化的活动需求' : '请输入活动需求', 'warn');
-  }
-
   let _session = 'S-' + Date.now().toString(36);
   function sessionId() { return _session; }
 
-  function pushResult(res) {
-    S.ai.history.push({ role: 'ai', kind: res.kind, result: res,
-      title: res.title, headline: res.headline, lines: res.lines, evidence: res.evidence,
-      ruleVersion: res.ruleVersion, denied: res.denied });
-    S.ai.state = 'result';
-    renderAI();
-    const d = $('#aiDrawer');
-    if (d) { const b = $('#aiBody', d); if (b) b.scrollTop = b.scrollHeight; }
-  }
-
-  function sendAI(text) {
+  function sendAI(text, forcedAction) {
     const input = String(text || '').trim();
     if (!input) { toast('请输入内容', 'warn'); return; }
     if (S.ai.state === 'generating') { toast(t('ai.state.generating'), 'warn'); return; }
@@ -3960,22 +4069,31 @@
     S.ai.state = 'generating';
     renderAI();
 
-    // 服务端工具调用层：按页面与角色选择意图
+    // 服务端工具调用层：优先用问题的明确指向，再用关键词推断，最后按页面兜底
     const pageHint = S.page;
-    const intentKey = S.ai.tab;
+    const intentKey = forcedAction || inferAIAction(input, enabled, acc);
+    const aiCtx = () => ({ sessionId: sessionId(), currentDraft: S.create.draftPrefill,
+      audienceSize: (S.create.result || {}).total || 0 });
 
     setTimeout(() => {
       try {
         let res;
-        if (pageHint === 'records' || pageHint === 'overview' || (intentKey === 'explain' && enabled.includes('explain'))) {
-          if (enabled.includes('explain')) res = AI.explainBlock(input, acc);
-          else res = AI.explainBlock(input, acc);
+        if (intentKey === 'explain' && enabled.includes('explain')) {
+          res = AI.explainBlock(input, acc);
         } else if (intentKey === 'permission' && enabled.includes('permission')) {
-          res = AI.permissionCheck(acc, { sessionId: sessionId(), currentDraft: S.create.draftPrefill });
+          res = AI.permissionCheck(acc, aiCtx());
+        } else if (intentKey === 'value' && enabled.includes('value')) {
+          res = AI.suggestValue(acc, aiCtx());
+        } else if (intentKey === 'predict' && enabled.includes('predict')) {
+          res = AI.predictRedemption(acc, aiCtx());
+        } else if (intentKey === 'copy' && enabled.includes('copy')) {
+          res = AI.generateCopy(acc, aiCtx());
         } else if (intentKey === 'localize' && acc.scope_type === 'store' && enabled.includes('localize')) {
-          res = AI.localize(input, acc, { sessionId: sessionId(), audienceSize: (S.create.result || {}).total || 0 });
+          res = AI.localize(input, acc, aiCtx());
+        } else if (pageHint === 'records' || pageHint === 'overview') {
+          res = AI.explainBlock(input, acc);
         } else {
-          res = AI.generateDraft(input, acc, { sessionId: sessionId(), audienceSize: (S.create.result || {}).total || 0 });
+          res = AI.generateDraft(input, acc, aiCtx());
         }
         S.ai.state = 'result';
         S.ai.history.push({

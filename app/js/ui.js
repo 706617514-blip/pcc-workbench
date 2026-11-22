@@ -67,6 +67,12 @@
     if (l) { l.close(); return true; }
     return false;
   }
+  /** 打开某个筛选面板时收起其他仍处于展开态的筛选控件 */
+  function closeOtherFilters(except) {
+    layers.slice().forEach((l) => {
+      if (l.node !== except && l.node && l.node.classList && l.node.classList.contains('control')) l.close();
+    });
+  }
   function bindGlobalCloser() {
     if (closerBound) return;
     closerBound = true;
@@ -96,7 +102,7 @@
    * 多选下拉（PRD 5.1：券种／活动收纳为一个筛选字段；「全部」互斥）
    * ==============================================================*/
   function multiSelect(opts) {
-    const { placeholder, options, values, onChange, exclusiveAll, onApply } = opts;
+    const { placeholder, options, values, onChange, exclusiveAll, onApply, staged, onStage } = opts;
     const wrap = el('div', 'control');
     wrap.innerHTML = `<span class="ctrl-value"></span><span class="ctrl-caret">${SVG.caret}</span>`;
     const valueEl = $('.ctrl-value', wrap);
@@ -132,10 +138,6 @@
         applyItemState(items[idx++], on0);
       }
       options.forEach((o) => applyItemState(items[idx++], selected.has(o.v)));
-      const hint = panel.querySelector('.dd-foot-hint');
-      if (hint) hint.textContent = dirty ? '已修改，点击应用生效' : '可连续多选';
-      const apply = panel.querySelector('.dd-apply');
-      if (apply) apply.classList.toggle('on', dirty);
     }
     function applyItemState(node, on) {
       if (!node) return;
@@ -151,27 +153,28 @@
         panel.appendChild(el('div', 'dd-sep'));
       }
       options.forEach((o) => panel.appendChild(mkItem(o, false)));
-      // 底部操作条：批量选择完成后统一点「应用」
+      // 底部操作条：staged 模式只留「重置」，由页面级「应用筛选」统一提交
       const foot = el('div', 'dd-foot');
-      const hint = el('span', 'dd-foot-hint');
-      hint.textContent = dirty ? '已修改，点击应用生效' : '可连续多选';
-      const apply = el('button', 'dd-apply', '应用');
-      apply.classList.toggle('on', dirty);
-      apply.addEventListener('click', (e) => {
-        e.stopPropagation();
-        commit();
-        closePanel();
-      });
+      const btns = el('span', 'dd-foot-btns');
+      if (!staged) {
+        const apply = el('button', 'dd-apply', '应用');
+        apply.classList.toggle('on', dirty);
+        apply.addEventListener('click', (e) => {
+          e.stopPropagation();
+          commit();
+          closePanel();
+        });
+        btns.appendChild(apply);
+      }
       const reset = el('button', 'dd-reset', '重置');
       reset.addEventListener('click', (e) => {
         e.stopPropagation();
         selected = new Set();
-        dirty = true;
+        dirty = !sameSet(selected, committed);
         render();
+        if (staged && onStage) onStage();
       });
-      foot.appendChild(hint);
-      const btns = el('span', 'dd-foot-btns');
-      btns.appendChild(reset); btns.appendChild(apply);
+      btns.appendChild(reset);
       foot.appendChild(btns);
       panel.appendChild(foot);
     }
@@ -188,6 +191,7 @@
         }
         dirty = !sameSet(selected, committed);
         render();          // 只重绘下拉面板，不关闭、不触发页面重建
+        if (staged && onStage) onStage();
       });
       return it;
     }
@@ -207,6 +211,7 @@
     }
     function openPanel() {
       if (open) return;
+      closeOtherFilters(wrap);
       open = true; wrap.classList.add('open');
       panel = el('div', 'dropdown');
       buildPanel();
@@ -217,8 +222,8 @@
     }
     function closePanel() {
       if (!open) return;
-      // 关闭前若仍有未提交的改动，一并提交，避免用户以为已选中
-      if (dirty) commit();
+      // staged 模式由页面级「应用筛选」统一提交；关闭面板本身不提交
+      if (dirty && !staged) commit();
       open = false; wrap.classList.remove('open');
       if (panel) { panel.remove(); panel = null; }
       if (wrap._layer) { popLayer(wrap._layer); wrap._layer = null; }
@@ -248,6 +253,7 @@
       render();
     };
     wrap.getValue = () => (selected.has('__all') ? [] : Array.from(selected));
+    wrap.commit = () => { commit(); };   // staged 模式：由页面级「应用筛选」统一提交
     wrap.setOptions = (opts2) => { options.length = 0; opts2.forEach((o) => options.push(o)); render(); };
     render();
     return wrap;
@@ -343,15 +349,16 @@
    * 单选下拉
    * ==============================================================*/
   function singleSelect(opts) {
-    const { options, value, onChange, placeholder } = opts;
+    const { options, value, onChange, placeholder, staged, onStage } = opts;
     const wrap = el('div', 'control');
     wrap.innerHTML = `<span class="ctrl-value"></span><span class="ctrl-caret">${SVG.caret}</span>`;
     const valueEl = $('.ctrl-value', wrap);
-    let cur = value, open = false, panel = null;
+    let cur = value, committed = value, open = false, panel = null;
     function render() {
       const o = options.find((x) => x.v === cur);
       valueEl.textContent = o ? o.label : (placeholder || '');
       valueEl.classList.toggle('placeholder', !o);
+      wrap.classList.toggle('dirty', staged && cur !== committed);
       if (panel) build();
     }
     function build() {
@@ -361,13 +368,16 @@
           `<span>${esc(o.label)}</span>${o.v === cur ? `<span style="margin-left:auto;color:var(--pcc-red)">${SVG.check}</span>` : ''}`);
         it.addEventListener('click', (e) => {
           e.stopPropagation();
-          cur = o.v; render(); closePanel(); onChange(o.v);
+          cur = o.v; render();
+          if (staged) { if (onStage) onStage(); }   // 暂存，交给页面级「应用筛选」统一提交
+          else { closePanel(); onChange(o.v); }
         });
         panel.appendChild(it);
       });
     }
     function openPanel() {
       if (open) return;
+      closeOtherFilters(wrap);
       open = true; wrap.classList.add('open');
       panel = el('div', 'dropdown'); build(); wrap.appendChild(panel);
       const layer = { node: wrap, trigger: wrap, close: closePanel };
@@ -383,8 +393,12 @@
     wrap.addEventListener('mouseleave', () => setTimeout(() => { if (open && !wrap.matches(':hover')) closePanel(); }, 220));
     wrap.addEventListener('click', (e) => { e.stopPropagation(); open ? closePanel() : openPanel(); });
     wrap.addEventListener('touchstart', () => { wrap.dataset.touch = '1'; }, { passive: true });
-    wrap.setValue = (v) => { cur = v; render(); };
+    wrap.setValue = (v) => { cur = v; committed = v; render(); };
     wrap.getValue = () => cur;
+    wrap.commit = () => {
+      if (!staged || cur === committed) return;
+      committed = cur; render(); onChange(cur);
+    };
     render();
     return wrap;
   }
@@ -396,12 +410,14 @@
    * 第二次点击早于开始日时，以该日重设开始日。
    * ==============================================================*/
   function rangePicker(opts) {
-    const { from, to, onChange, minDate, maxDate } = opts;
+    const { from, to, onChange, minDate, maxDate, staged, onStage } = opts;
     const wrap = el('div', 'control');
     wrap.innerHTML = `<span class="ctrl-value"></span><span class="ctrl-caret">${SVG.caret}</span>`;
     const valueEl = $('.ctrl-value', wrap);
 
     let start = from, end = to;
+    let committedStart = from, committedEnd = to;
+    let resetDraft = false;   // 日历内「重置」：待应用时恢复默认区间
     let viewY, viewM, mode = 'days', selecting = false;
     let open = false, panel = null;
     const todayStr = opts.today || null;
@@ -418,6 +434,7 @@
     function renderLabel() {
       valueEl.textContent = (start && end) ? `${fmt(start)} — ${fmt(end)}` : (start ? fmt(start) : '');
       valueEl.classList.toggle('placeholder', !start);
+      wrap.classList.toggle('dirty', staged && (start !== committedStart || end !== committedEnd));
       if (panel) build();
     }
     const iso = (d) => {
@@ -490,13 +507,13 @@
       }
 
       const foot = el('div', 'cal-foot');
-      foot.innerHTML = `<span class="hint">${selecting ? '请选择结束日期' : '第一次点击选开始日，第二次选结束日'}</span>`;
       const reset = el('button', 'btn-text', '重置');
       reset.style.fontSize = '12.5px';
       reset.addEventListener('click', (e) => {
         e.stopPropagation();
-        start = null; end = null; selecting = false; renderLabel();
-        onChange(null, null);
+        start = null; end = null; selecting = false; resetDraft = true; renderLabel();
+        if (staged) { if (onStage) onStage(); }
+        else onChange(null, null);
       });
       foot.appendChild(reset);
       panel.appendChild(foot);
@@ -511,6 +528,7 @@
       build();
     }
     function pick(ds) {
+      resetDraft = false;
       if (!selecting || !start) {
         start = ds; end = null; selecting = true;
       } else {
@@ -518,10 +536,13 @@
         else { end = ds; selecting = false; }
       }
       renderLabel();
-      if (!selecting) { onChange(start, end); }
+      if (staged) {
+        if (onStage) onStage();
+      } else if (!selecting) { onChange(start, end); }
     }
     function openPanel() {
       if (open) return;
+      closeOtherFilters(wrap);
       open = true; wrap.classList.add('open');
       panel = el('div', 'calendar'); build(); wrap.appendChild(panel);
       const layer = { node: wrap, trigger: wrap, close: closePanel };
@@ -533,13 +554,32 @@
       if (panel) { panel.remove(); panel = null; }
       if (wrap._layer) { popLayer(wrap._layer); wrap._layer = null; }
     }
+    // 与其他两个筛选框一致：鼠标移入自动滑出，移出后收起（暂存态保留）
+    let hoverTimer = null;
+    wrap.addEventListener('mouseenter', () => {
+      if (wrap.dataset.touch === '1') return;
+      hoverTimer = setTimeout(openPanel, 120);
+    });
+    wrap.addEventListener('mouseleave', () => {
+      clearTimeout(hoverTimer);
+      setTimeout(() => {
+        if (open && !wrap.matches(':hover') && !(staged && wrap.classList.contains('dirty'))) closePanel();
+      }, 220);
+    });
+    wrap.addEventListener('touchstart', () => { wrap.dataset.touch = '1'; }, { passive: true });
     wrap.addEventListener('click', (e) => { e.stopPropagation(); open ? closePanel() : openPanel(); });
     wrap.setValue = (f, t) => {
-      start = f; end = t;
+      start = f; end = t; committedStart = f; committedEnd = t;
       if (f) { const d = new Date(f + 'T00:00:00'); viewY = d.getFullYear(); viewM = d.getMonth(); }
       renderLabel();
     };
     wrap.getValue = () => ({ from: start, to: end });
+    wrap.commit = () => {
+      if (!staged || (start === committedStart && end === committedEnd && !resetDraft)) return;
+      // 只选了开始日、尚未选结束日时不提交，避免出现半截日期区间
+      if (!resetDraft && (!start || !end)) return;
+      committedStart = start; committedEnd = end; resetDraft = false; renderLabel(); onChange(start, end);
+    };
     renderLabel();
     return wrap;
   }
@@ -739,17 +779,12 @@
     });
   }
 
-  /* ---------------------------------------------------- 图标：PCC logo */
-  function pccLogo(size, color) {
-    const s = size || 46, c = color || '#A5192E';
-    return `<svg width="${s}" height="${s}" viewBox="0 0 48 48" fill="none">
-      <circle cx="24" cy="24" r="22" stroke="${c}" stroke-width="2.4"/>
-      <path d="M14 21c0-1.1.9-2 2-2h1.2c.5-3.2 3.3-5.6 6.8-5.6 3.8 0 6.9 3.1 6.9 6.9 0 .3 0 .6-.1.9.9.3 1.6 1.2 1.6 2.2"
-            stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M17 21h14" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M12 25h24l-2.4 6.5c-.7 1.9-2.5 3.2-4.5 3.2H18.9c-2 0-3.8-1.3-4.5-3.2L12 25z"
-            stroke="${c}" stroke-width="2.2" stroke-linejoin="round"/>
-    </svg>`;
+  /* ---------------------------------------------------- 图标：PCC logo
+   * 使用官方图形资源，替代此前的线框 SVG；color 参数保留兼容，但图形颜色固定。 */
+  const PCC_LOGO_SRC = 'assets/pcc-logo.png?v=1795327986';
+  function pccLogo(size) {
+    const s = size || 46;
+    return `<img class="pcc-logo-img" src="${PCC_LOGO_SRC}" width="${s}" height="${s}" alt="PCC" draggable="false">`;
   }
 
   global.UI = {
