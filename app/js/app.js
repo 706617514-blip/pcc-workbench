@@ -257,7 +257,6 @@
       <h1 class="login-title">${esc(t('login.title'))}</h1>
       <p class="login-subtitle">${esc(t('login.subtitle'))}</p>
       <div class="login-groups"></div>
-      <p class="login-hint">${esc(t('login.hint'))}</p>
     </div>`;
     const groupsBox = $('.login-groups', wrap);
     groups.forEach((g) => {
@@ -958,7 +957,7 @@
     const board = el('div', 'dash-board');
     const toolbar = el('div', 'focus-toolbar');
     toolbar.innerHTML = `<button class="focus-back" type="button">${DASH_ICONS.collapse}<span>${esc(t('ov.focus.back'))}</span></button>
-      <span class="focus-crumb"></span><span class="focus-tip">${esc(t('ov.focus.tip'))}</span>`;
+      <span class="focus-crumb"></span>`;
     const normalFlow = el('div', 'dash-normal');
     const kpiRow = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
     const topGrid = el('div', 'dash-chart-home' + (store ? ' is-solo' : ''));
@@ -1936,7 +1935,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t(store ? 'propose.title' : 'cr.title'))}</h2>
-        <p class="page-desc">${esc(t(store ? 'propose.desc' : 'cr.desc'))}</p>
       </div>`;
     const createBtn = el('button', 'btn btn-primary', esc(t(store ? 'dlg.submit' : 'cr.create')));
     createBtn.style.minWidth = '150px';
@@ -1946,11 +1944,6 @@
     });
     head.appendChild(createBtn);
     host.appendChild(head);
-    if (store) {
-      const rule = el('div', 'notice', esc(t('rule.claim_redeem', { store: E.utils.storeLabel(myStore) })));
-      rule.style.marginBottom = '18px';
-      host.appendChild(rule);
-    }
 
     const wrap = el('div', '');
     wrap.style.display = 'grid';
@@ -1993,9 +1986,6 @@
         onApply: () => render(),
       });
       fStore.appendChild(ms);
-      const hint = el('div', '', t('cr.hq_scope_hint'));
-      hint.style.cssText = 'font-size:12px;color:var(--ink-3);margin-top:2px';
-      fStore.appendChild(hint);
     }
     filterCard.appendChild(fStore);
 
@@ -2072,13 +2062,6 @@
     const applyWrap = el('div', 'filter-apply-sticky');
     applyWrap.appendChild(applyBtn);
     filterCard.appendChild(applyWrap);
-    if (store) {
-      const note = el('div', 'notice grey');
-      note.style.marginTop = '16px';
-      note.style.fontSize = '12px';
-      note.textContent = t('cr.isolation.note');
-      filterCard.appendChild(note);
-    }
     wrap.appendChild(filterCard);
 
     /* ---------- 右：人数 + 预览 ---------- */
@@ -2108,14 +2091,7 @@
     pt.textContent = t(store ? 'cr.preview.store' : 'cr.preview');
     prevCard.appendChild(pt);
 
-    if (!S.create.applied) {
-      const guide = el('div', 'preview-guide');
-      guide.innerHTML = `
-        <div class="preview-guide-row"><span class="preview-guide-num">1</span><span>在左侧设置筛选条件（门店、消费、到店频次）</span></div>
-        <div class="preview-guide-row"><span class="preview-guide-num">2</span><span>点击「应用筛选条件」计算结果人数</span></div>
-        <div class="preview-guide-row"><span class="preview-guide-num">3</span><span>查看下方会员明细，确认后再创建活动</span></div>`;
-      prevCard.appendChild(guide);
-    } else {
+    if (S.create.applied) {
       // 总部多选门店时，额外展示「覆盖门店」列，说明该会员命中哪几家所选门店
       const multiScope = !store && (S.create.result.scope_type === 'stores');
       const tw = el('div', 'table-wrap');
@@ -2271,7 +2247,6 @@
           <input class="input" id="dlgSegment" value="${esc(pre.segment_definition || audienceText)}">
         </div>
       </div>
-      <div class="notice" id="dlgNotice" style="margin-top:20px"></div>
       <div id="dlgGuard" style="margin-top:14px"></div>
     `;
 
@@ -2326,9 +2301,6 @@
       const ct = E.COUPON_TYPES[curCoupon];
       $('#dlgValidity', body).textContent = ct.validity_label;
       $('#dlgPer', body).textContent = `${ct.per_member_label} · ${ct.stack_label}`;
-      $('#dlgNotice', body).textContent = store
-        ? `${t('dlg.approval_note.store')} ${t('rule.claim_redeem', { store: E.utils.storeLabel(acc.scope_id) })} ${t('dlg.order_note')}`
-        : `${t('dlg.approval_note')} ${t('dlg.order_note')}`;
       // 实时守门
       const draft = curDraft();
       const g = E.permissionGuard(draft, acc);
@@ -2438,7 +2410,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('mg.title'))}</h2>
-        <p class="page-desc">${esc(store ? t('propose.desc') : t('mg.desc'))}</p>
       </div>`;
     host.appendChild(head);
 
@@ -2586,21 +2557,19 @@
     const used = usedList.length;
     const storeName = E.utils.storeLabel(acc.scope_id || c.store_id || '');
 
-    const resultBlock = store
-      ? `<div class="notice grey cd-result">${esc(t('rule.claim_redeem', { store: storeName }))}</div>`
-      : `<div class="cd-result">
-          <div class="cd-sec"><span class="cd-sec-t">发放结果</span><span class="cd-sec-line"></span><span class="cd-hint">${esc(t('cd.hint'))}</span></div>
-          <div class="metrics metrics-4 cd-metrics" style="margin-bottom:0">
-            <button type="button" class="metric cd-metric" data-cd="issued" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(issued.length))}</div></button>
-            <button type="button" class="metric cd-metric" data-cd="claimed" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">领取 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(claimed))}</div></button>
-            <button type="button" class="metric cd-metric" data-cd="used" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">核销 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(used))}</div></button>
-            <button type="button" class="metric cd-metric" data-cd="rate" style="min-height:auto;padding:14px 16px">
-              <div class="metric-label">核销率 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></button>
-          </div>
-        </div>`;
+    const resultBlock = `<div class="cd-result">
+        <div class="cd-sec"><span class="cd-sec-t">发放结果</span><span class="cd-sec-line"></span></div>
+        <div class="metrics metrics-4 cd-metrics" style="margin-bottom:0">
+          <button type="button" class="metric cd-metric" data-cd="issued" style="min-height:auto;padding:14px 16px">
+            <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(issued.length))}</div></button>
+          <button type="button" class="metric cd-metric" data-cd="claimed" style="min-height:auto;padding:14px 16px">
+            <div class="metric-label">领取 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(claimed))}</div></button>
+          <button type="button" class="metric cd-metric" data-cd="used" style="min-height:auto;padding:14px 16px">
+            <div class="metric-label">核销 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(used))}</div></button>
+          <button type="button" class="metric cd-metric" data-cd="rate" style="min-height:auto;padding:14px 16px">
+            <div class="metric-label">核销率 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></button>
+        </div>
+      </div>`;
     const ruleLines = ct.rules.slice();
     if (store) {
       ruleLines.push(t('rule.claim_all'));
@@ -2782,7 +2751,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('ap.title'))}</h2>
-        <p class="page-desc">${esc(t('ap.desc'))}</p>
       </div>`;
     host.appendChild(head);
 
@@ -2890,10 +2858,6 @@
         wrap.appendChild(item);
       });
       host.appendChild(wrap);
-      const note = el('div', 't-small t-muted');
-      note.style.marginTop = '16px';
-      note.textContent = t('ap.no_approve');
-      host.appendChild(note);
     }
   }
 
@@ -2902,8 +2866,6 @@
     const ct = E.COUPON_TYPES[c.coupon_type];
     const editable = c.status === 'pending' && acc.can_approve;
     const scopeLabelText = c.source === 'store_submit' ? t('dlg.scope.redeem') : t('mg.scope');
-    const ruleNote = c.source === 'store_submit'
-      ? `<div class="notice grey" style="margin-top:16px">${esc(t('rule.claim_redeem', { store: E.utils.storeLabel(c.store_id) }))}</div>` : '';
     const body = el('div');
     body.innerHTML = `
       <div class="dl-row"><span class="k">活动编号</span><span class="v mono">${esc(c.campaign_id)}</span></div>
@@ -2911,7 +2873,6 @@
       <div class="dl-row"><span class="k">活动类型</span><span class="v">${esc(c.mode === 'auto' ? t('mg.tab.auto') : t('sr.mode.manual'))}</span></div>
       <div class="dl-row"><span class="k">${esc(scopeLabelText)}</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
       <div class="dl-row"><span class="k">目标人群</span><span class="v">${esc(c.segment_definition || '—')}</span></div>
-      ${ruleNote}
       <div class="dl-row"><span class="k">${esc(t('ap.submitter'))}</span><span class="v">${esc(log.by || c.created_by)}</span></div>
       <div class="dl-row"><span class="k">${esc(t('ap.submit_date'))}</span><span class="v">${esc((c.created_at || '').replace('T', ' '))}</span></div>
       <div class="dl-row"><span class="k">${esc(t('ap.approver'))}</span><span class="v">${esc(log.approver || '—')}</span></div>
@@ -2996,13 +2957,8 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('progress.title'))}</h2>
-        <p class="page-desc">${esc(t('progress.desc'))}</p>
       </div>`;
     host.appendChild(head);
-
-    const rule = el('div', 'notice', esc(t('rule.claim_redeem', { store: E.utils.storeLabel(acc.scope_id) })));
-    rule.style.marginBottom = '18px';
-    host.appendChild(rule);
 
     const list = storeSubmitted(acc);
     if (!list.length) { host.appendChild(el('div', 'empty', esc(t('progress.empty')))); return; }
@@ -3035,7 +2991,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('storeinfo.title'))}</h2>
-        <p class="page-desc">${esc(t('storeinfo.desc'))}</p>
       </div>`;
     host.appendChild(head);
 
@@ -3065,7 +3020,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('sr.title'))}</h2>
-        <p class="page-desc">${esc(t('sr.desc'))}</p>
       </div>`;
     const exp = el('button', 'btn btn-ghost', `${SVG.export}<span>${esc(t('sr.export'))}</span>`);
     exp.addEventListener('click', () => {
@@ -3156,8 +3110,7 @@
     const card = el('div', 'card');
     const tt = el('div', '');
     tt.style.cssText = 'padding:20px 24px 4px;display:flex;justify-content:space-between;align-items:center';
-    tt.innerHTML = `<span style="font-size:17px;font-weight:700">${esc(t('sr.detail.title'))}</span>
-      <span class="t-small t-muted">${esc(t('sr.detail.note'))}</span>`;
+    tt.innerHTML = `<span style="font-size:17px;font-weight:700">${esc(t('sr.detail.title'))}</span>`;
     card.appendChild(tt);
 
     if (!jobs.length) {
@@ -3223,10 +3176,6 @@
     }
     host.appendChild(card);
 
-    const note = el('div', 't-small t-muted');
-    note.style.marginTop = '14px';
-    note.textContent = t('sr.drawer.notify_note');
-    host.appendChild(note);
 
     function filteredJobs() {
       let list = DB.sendJob.slice();
@@ -3288,8 +3237,7 @@
           ${!job.retry_history?.length && !isFailed ? `<div class="tl-item"><span class="tl-dot green"></span>
             <span><span class="mono">${esc((job.executed_at || '').replace('T', ' '))}</span> 执行完成，已建立 ${esc(job.success)} 张券实例</span></div>` : ''}
         </div>
-        ${isFailed ? `<div style="margin-top:12px;font-size:13px;color:var(--ink-3)">${esc(t('sr.drawer.not_retried'))}</div>
-          <div style="margin-top:6px;font-size:13px;color:var(--pcc-red)">${esc(t('sr.drawer.idem_note'))}</div>` : ''}
+        ${isFailed ? `<div style="margin-top:12px;font-size:13px;color:var(--ink-3)">${esc(t('sr.drawer.not_retried'))}</div>` : ''}
       </div>
       ${blocked.length ? `<div style="margin-top:22px">
         <div style="font-size:15px;font-weight:700;margin-bottom:8px">${esc(t('sr.blocked.title'))}</div>
@@ -3340,7 +3288,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('audit.title'))}</h2>
-        <p class="page-desc">${esc(t('audit.desc'))}</p>
       </div>`;
     const tag = el('div', '');
     tag.innerHTML = `<span class="chip chip-grey">${esc(t('audit.readonly'))}</span>`;
@@ -3384,7 +3331,6 @@
     const head = el('div', 'page-head');
     head.innerHTML = `<div>
         <h2 class="page-title">${esc(t('st.title'))}</h2>
-        <p class="page-desc">${esc(t('st.desc'))}</p>
       </div>`;
     host.appendChild(head);
 
@@ -3401,7 +3347,6 @@
     prCard.innerHTML = `
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:10px">
         <div style="font-size:17px;font-weight:700">规则优先级</div>
-        <div class="t-small t-muted">同一会员同时命中多条运行中规则时，只发优先级最高的一张，其余记为「优先级让步」</div>
       </div>
       <div class="prio-head">
         <span>级别</span><span>运行中规则</span><span>券种</span><span>适用范围</span><span>编号</span>
@@ -3412,12 +3357,7 @@
         <span class="prio-type">${esc(r.coupon_name)}</span>
         <span class="prio-scope">${esc(r.scope)}</span>
         <span class="prio-id mono">${esc(r.campaign_id)}</span>
-      </div>`).join('') || '<div class="t-small t-muted" style="padding:12px 0">当前没有运行中的规则。</div>'}
-      <div class="prio-note">
-        级别：生日 100 &gt; 新人 90 &gt; 回流 80 &gt; 主题 70 = 门店本地 70（平级）&gt; 学生 60。
-        同级并列时按「适用范围更窄者优先」（单店 &gt; 多店 &gt; 全港），再按活动编号先后。
-        以上为当前生效的规则优先级，可在工作台内调整。
-      </div>`;
+      </div>`).join('') || '<div class="t-small t-muted" style="padding:12px 0">当前没有运行中的规则。</div>'}`;
     host.appendChild(prCard);
 
     // 界面语言
@@ -3427,7 +3367,6 @@
     lr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap';
     lr.innerHTML = `<div>
         <div style="font-size:17px;font-weight:700;margin-bottom:6px">${esc(t('st.lang'))}</div>
-        <div class="t-small t-muted">${esc(t('st.lang.note'))}</div>
       </div>`;
     const lsel = el('div', 'field');
     lsel.style.minWidth = '230px';
@@ -3436,9 +3375,6 @@
       value: S.locale, onChange: (v) => { S.locale = v; render(); toast('界面语言已切换', 'ok'); },
     });
     lsel.appendChild(ss);
-    const hint = el('div', 't-small t-muted', esc(t('st.lang.options')));
-    hint.style.marginTop = '6px';
-    lsel.appendChild(hint);
     lr.appendChild(lsel);
     langCard.appendChild(lr);
     host.appendChild(langCard);
@@ -3448,7 +3384,6 @@
     secHead.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:16px;flex-wrap:wrap';
     secHead.innerHTML = `<div>
         <div style="font-size:17px;font-weight:700;margin-bottom:5px">${esc(t('st.accounts'))}</div>
-        <div class="t-small t-muted">${esc(canManage ? t('st.accounts.note') : t('st.no_perm'))}</div>
       </div>`;
     if (canManage) {
       const add = el('button', 'btn btn-primary', esc(t('st.accounts.add')));
@@ -3480,10 +3415,6 @@
     });
     tw.appendChild(table);
     card.appendChild(tw);
-    const note = el('div', 't-small t-muted');
-    note.style.cssText = 'padding:14px 24px 18px';
-    note.textContent = t('st.region.note');
-    card.appendChild(note);
     host.appendChild(card);
   }
 
@@ -3665,7 +3596,6 @@
           <input class="ai-input" id="aiInput" placeholder="${esc(t('ai.placeholder'))}" value="${esc(S.ai.lastInput)}">
           <button class="btn btn-primary" id="aiSend" style="padding:0 22px">${esc(t('ai.send'))}</button>
         </div>
-        <div class="ai-note">${esc(t('ai.note'))}</div>
       </div>`;
 
     $('#aiClose', d).addEventListener('click', () => toggleAI(false));
@@ -3698,26 +3628,6 @@
 
     const body = $('#aiBody', d);
     body.appendChild(tabsBox);
-
-    // AI 能力与边界：说清哪些是确定性规则、哪些需要模型（答辩会被问）
-    const scope = el('div', 'ai-scope');
-    const scopeToggle = el('button', 'ai-scope-toggle');
-    scopeToggle.type = 'button';
-    scopeToggle.textContent = t('ai.scope.title') + ' ▾';
-    const scopeBody = el('div', 'ai-scope-body');
-    scopeBody.style.display = 'none';
-    scopeBody.innerHTML = `
-      <div class="ai-scope-row"><b>${esc(t('ai.scope.rule.t'))}</b>${esc(t('ai.scope.rule'))}</div>
-      <div class="ai-scope-row"><b>${esc(t('ai.scope.model.t'))}</b>${esc(t('ai.scope.model'))}</div>
-      <div class="ai-scope-row"><b>${esc(t('ai.scope.lic.t'))}</b>${esc(t('ai.scope.lic'))}</div>`;
-    scopeToggle.addEventListener('click', () => {
-      const open = scopeBody.style.display !== 'none';
-      scopeBody.style.display = open ? 'none' : 'block';
-      scopeToggle.textContent = t('ai.scope.title') + (open ? ' ▾' : ' ▴');
-    });
-    scope.appendChild(scopeToggle);
-    scope.appendChild(scopeBody);
-    body.appendChild(scope);
 
     // 欢迎 / 快捷提问
     if (!S.ai.history.length) S.ai.history.push({ role: 'ai', kind: 'welcome' });
@@ -3828,12 +3738,6 @@
         det.appendChild(ev);
         card.appendChild(det);
       }
-      if (h.ruleVersion) {
-        const rv = el('div', 'ai-reason');
-        rv.style.marginTop = '10px';
-        rv.textContent = `规则版本：${h.ruleVersion} · 结果可追溯，AI 不会自行发券`;
-        card.appendChild(rv);
-      }
       if (h.denied) card.style.borderColor = '#F3D6DA';
       frag.appendChild(card);
       return frag;
@@ -3842,8 +3746,7 @@
     // 券文案草稿（PRD 3.3 组件 G）
     if (h.kind === 'copy') {
       const card = el('div', 'ai-card');
-      card.innerHTML = `<h4>${esc(h.title)}</h4>
-        <div class="t-small t-muted" style="margin-bottom:10px">文案为草稿，需人工确认并走审批后才能使用；不自动发送。</div>`;
+      card.innerHTML = `<h4>${esc(h.title)}</h4>`;
       (h.variants || []).forEach((v) => {
         const box = el('div', 'ai-kv copy-box');
         box.style.cssText = 'flex-direction:column;align-items:flex-start;gap:6px;padding:12px 0;border-bottom:1px solid var(--line-2)';
@@ -3885,10 +3788,6 @@
         ev.innerHTML = h.evidence.map((e) => `<div class="ai-reason">· ${esc(e)}</div>`).join('');
         card.appendChild(ev);
       }
-      const rv = el('div', 'ai-reason');
-      rv.style.marginTop = '10px';
-      rv.textContent = `规则版本：${h.ruleVersion} · 草稿需人工确认，AI 不会自行发送`;
-      card.appendChild(rv);
       frag.appendChild(card);
       return frag;
     }
@@ -3904,12 +3803,6 @@
         ev.innerHTML = `<div style="font-size:13px;font-weight:700;margin-bottom:6px">依据</div>`
           + h.evidence.map((e) => `<div class="ai-reason">· ${esc(e)}</div>`).join('');
         card.appendChild(ev);
-      }
-      if (h.ruleVersion) {
-        const rv = el('div', 'ai-reason');
-        rv.style.marginTop = '10px';
-        rv.textContent = `规则版本：${h.ruleVersion} · 输出为建议，需人工确认后自行提交审批`;
-        card.appendChild(rv);
       }
       frag.appendChild(card);
       return frag;
@@ -3997,10 +3890,6 @@
       });
       foot.appendChild(fill);
     }
-    const note = el('div', 'ai-reason');
-    note.style.textAlign = 'center';
-    note.textContent = res.kind === 'localize' ? t('ai.note.local') : t('ai.note');
-    foot.appendChild(note);
     frag.appendChild(foot);
     return frag;
   }
