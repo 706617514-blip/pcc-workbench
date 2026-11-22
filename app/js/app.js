@@ -1011,7 +1011,7 @@
     toolbar.innerHTML = `<button class="focus-back" type="button">${DASH_ICONS.collapse}<span>${esc(t('ov.focus.back'))}</span></button>
       <span class="focus-crumb"></span>`;
     const normalFlow = el('div', 'dash-normal');
-    const kpiRow = el('div', 'metrics metrics-4 dash-metrics dash-kpis');
+    const kpiRow = el('div', 'metrics metrics-4 dash-metrics dash-kpis ' + (store ? 'store-kpis' : 'hq-kpis'));
     const topGrid = el('div', 'dash-chart-home' + (store ? ' is-solo' : ''));
     const trendCol = el('div', 'dash-top-col');
     const storeCol = el('div', 'dash-top-col');

@@ -2554,6 +2554,19 @@ body { padding: 30px; }
   .dash-kpis .kpi .metric-label { font-size: 14px; }
 }
 
+/* KPI 不等宽：金额卡多留空间，其余三张收紧右侧留白 */
+.dash-kpis.hq-kpis {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
+}
+.dash-kpis.store-kpis {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 1280px) {
+  .dash-kpis.hq-kpis, .dash-kpis.store-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* 官方 PCC 图形 logo：统一所有品牌位 */
 .pcc-logo-img {
   display: block;
