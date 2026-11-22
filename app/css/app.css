@@ -692,8 +692,9 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
   padding: 18px 22px 14px; border-bottom: 1px solid var(--line-2);
   display: flex; align-items: flex-start; gap: 12px;
 }
+.ai-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ai-head-logo { width: 38px; height: 38px; flex: 0 0 38px; }
-.ai-head h2 { font-size: 17.5px; font-weight: 700; margin: 0; }
+.ai-head h2 { font-size: 15px; font-weight: 700; line-height: 1.25; margin: 0; }
 .ai-body { flex: 1; overflow-y: auto; padding: 16px 22px 8px; }
 .msg { display: flex; margin-bottom: 14px; }
 .msg.user { justify-content: flex-end; }
@@ -770,8 +771,11 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
   transform: translateY(-1px); box-shadow: 0 6px 16px rgba(74, 30, 24, .09); color: var(--ink);
 }
 .quick-ask:focus-visible { outline: 2px solid var(--pcc-red); outline-offset: 2px; }
-.ai-drawer.enlarged .quick-asks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.ai-drawer.enlarged .quick-ask:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.ai-drawer.enlarged .quick-asks {
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  justify-content: start;
+}
+.ai-drawer.enlarged .quick-ask:last-child:nth-child(odd) { grid-column: auto; }
 
 /* --------- 详情抽屉（发送记录）----------- */
 .drawer-right {

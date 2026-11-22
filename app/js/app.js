@@ -3704,10 +3704,11 @@
     d.innerHTML = `
       <div class="ai-head" id="aiDragHead">
         <span class="ai-grip" title="拖动以移动浮窗">⠿</span>
-        <div class="ai-head-logo">${global.UI.pccLogo(38)}</div>
-        <div style="flex:1;min-width:0">
+        <div class="ai-brand">
+          <div class="ai-head-logo">${global.UI.pccLogo(38)}</div>
           <h2>${esc(t('ai.title'))}</h2>
         </div>
+        <div style="flex:1;min-width:0"></div>
         <button class="ai-min" id="aiMin" title="${esc(t('ai.enlarge'))}">${S.ai.enlarged ? DASH_ICONS.collapse : DASH_ICONS.expand}</button>
         <button class="modal-close" id="aiClose">${SVG.close}</button>
       </div>
