@@ -772,10 +772,9 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
 }
 .quick-ask:focus-visible { outline: 2px solid var(--pcc-red); outline-offset: 2px; }
 .ai-drawer.enlarged .quick-asks {
-  grid-template-columns: repeat(2, minmax(0, 320px));
+  grid-template-columns: minmax(0, 320px);
   justify-content: start;
 }
-.ai-drawer.enlarged .quick-ask:last-child:nth-child(odd) { grid-column: auto; }
 
 /* --------- 详情抽屉（发送记录）----------- */
 .drawer-right {
