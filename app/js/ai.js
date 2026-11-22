@@ -304,24 +304,61 @@
     blocked.concat(failed).forEach((a) => { codeCount[a.code] = (codeCount[a.code] || 0) + 1; });
     const top = Object.keys(codeCount).sort((a, b) => codeCount[b] - codeCount[a]);
 
+    // 把内部原因代码翻译成大白话，让用户一眼就懂，而不是看 DUP_XXX 这种术语
+    const PLAIN = {
+      DUP_WINBACK_SAME_ROUND: '这位会员这一轮已经领过回流券了，不重复发',
+      DUP_NEWBIE_ONCE: '新人券每位只能领一次，这位会员领过了',
+      DUP_BIRTHDAY_YEAR: '今年的生日券已经发过了',
+      DUP_STUDENT_MONTH: '这个月的学生券已经领过了',
+      DUP_CAMPAIGN_ONCE: '这个活动每人只能领一次，这位会员领过了',
+      FREQ_DAILY_CAP: '今天发得太多了，到了每天的上限',
+      FREQ_WEEKLY_CAP: '这周发得太多了，到了每周的上限',
+      IDEMPOTENT_SKIP: '这张券之前已经发过，跳过以免重复',
+      ELIGIBILITY_TIMEOUT: '资格核对超时了，这次先没发',
+      MISSING_BIRTHDAY: '资料里没填生日，发不了生日券',
+      MISSING_SIGNUP_DATE: '资料里没填注册日期，判断不了是不是新人',
+      STUDENT_EXPIRED: '学生身份已经过期了',
+      NOT_DORMANT: '最近还有消费，不算“沉睡会员”',
+      NO_STORE_TXN: '没有在这家店消费过',
+      NOT_NEWBIE: '注册太久，不算新人',
+      NO_STUDENT_RECORD: '没有学生身份认证记录',
+      NOT_BIRTHDAY_MONTH: '这个月不是这位会员的生日月',
+      MEMBER_NOT_FOUND: '找不到这位会员的资料',
+      DATA_INCOMPLETE: '资料缺了几项关键信息',
+    };
+    const plain = (code) => PLAIN[code] || '不符合这次发券的条件';
+
+    // 用与下方要点/证据同一批记录计算人数，避免“结论说全成功、下面却列了一堆拦截”的自相矛盾
+    const notSent = failed.length + blocked.length;
+    const sent = Math.max(0, job.requested - notSent);
+    // 一句话结论：先说结果，再说为什么，全用大白话
+    let headline;
+    if (!notSent) {
+      headline = `这次给 ${job.requested} 位会员发「${job.coupon_name}」，${sent} 位都成功拿到券了，没有人被挡下来。`;
+    } else {
+      const reasonText = top.length
+        ? top.slice(0, 2).map((code) => `${plain(code)}（${codeCount[code]} 人）`).join('；')
+        : '暂时没有查到具体原因';
+      headline = `这次要给 ${job.requested} 位会员发「${job.coupon_name}」，${sent} 位成功拿到券，${notSent} 位没发出去。主要是：${reasonText}。`;
+    }
+
     const lines = [];
     if (referencedJobId) {
-      lines.push(`你点名的是 ${referencedJobId}，该任务的失败记录已重试恢复、当前无遗留失败或因拦截记录；以下改引用最近一条仍有记录的 ${job.job_id}。`);
+      lines.push(`你问的是 ${referencedJobId}，但那笔已经重试成功、没有遗留问题了，所以改用了最近还有记录的一笔来说明。`);
     }
-    lines.push(`任务 ${job.job_id}（${job.coupon_name} · ${job.discount_label}）共请求 ${job.requested} 人，成功建券 ${job.success} 张，失败 ${job.failed} 条，被拦截 ${job.blocked} 条。`);
     if (top.length) {
-      lines.push('按原因代码归并，命中最多的是：');
-      top.slice(0, 4).forEach((code) => {
-        const sample = blocked.concat(failed).find((a) => a.code === code);
-        lines.push(`· ${code}（${codeCount[code]} 条）—— ${sample.reason}`);
-      });
+      top.slice(0, 4).forEach((code) => lines.push(`· ${plain(code)}：${codeCount[code]} 位会员`));
+    } else if (notSent) {
+      lines.push('· 这次没有查到具体的拦截原因。');
     }
-    if (!top.length) lines.push('该任务没有失败或因拦截记录。');
+    lines.push('这些都是发券前自动检查规则挡下来的，属于正常保护，不是系统出错，也没有发重复的券。');
 
     return {
       kind: 'explain',
-      title: `拦截解释 · ${job.job_id}`,
+      title: `发券结果，一句话说清`,
+      headline,
       lines,
+      // 原始记录保留但默认折叠，避免一大段术语把用户淹没（验收仍可核对证据）
       evidence: failed.concat(blocked).slice(0, 5).map((a) => ({
         ref: a.attempt_id, code: a.code, at: a.at,
         customer_id: storeScoped ? maskCid(a.customer_id) : a.customer_id,

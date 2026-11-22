@@ -646,19 +646,20 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
   border: 1px solid rgba(255, 255, 255, .92);
   box-shadow: 0 26px 70px rgba(74,30,24,.24), 0 4px 14px rgba(74,30,24,.08),
               inset 0 1px 0 rgba(255,255,255,.96);
-  opacity: 0; transform: translateY(16px) scale(.97); pointer-events: none;
-  transform-origin: center bottom;
-  transition: opacity .24s cubic-bezier(.22,.8,.24,1), transform .28s cubic-bezier(.22,.8,.24,1);
+  opacity: 0; transform: translateY(-18px) scale(.98); pointer-events: none;
+  transform-origin: center top;
+  transition: opacity .26s cubic-bezier(.22,.8,.24,1), transform .32s cubic-bezier(.22,.8,.24,1);
 }
 .ai-drawer.open { opacity: 1; transform: none; pointer-events: auto; }
 .ai-drawer.dragging { transition: none !important; cursor: grabbing; }
-.ai-drawer.minimized { width: 262px; height: 58px; }
-.ai-drawer.minimized .ai-body, .ai-drawer.minimized .ai-foot { display: none; }
-.ai-drawer.minimized .ai-head { padding: 10px 13px; border-bottom: 0; align-items: center; gap: 9px; }
-.ai-drawer.minimized .ai-head-logo { width: 30px; height: 30px; flex-basis: 30px; }
-.ai-drawer.minimized .ai-head-logo svg { width: 30px; height: 30px; }
-.ai-drawer.minimized .ai-head h2 { font-size: 14px; margin: 0; }
-.ai-drawer.minimized .ai-head .sub { display: none; }
+/* 放大：聊天框约放大到 2 倍，仍受视口约束；再次点击图标还原 */
+.ai-drawer.enlarged {
+  width: min(816px, calc(100vw - 48px)); height: min(1180px, calc(100vh - 48px));
+  border-radius: 30px;
+}
+.ai-drawer.enlarged .ai-body { padding: 20px 30px 10px; }
+.ai-drawer.enlarged .ai-head { padding: 20px 26px 16px; }
+.ai-drawer.enlarged .ai-foot { padding: 16px 30px 22px; }
 .ai-head { cursor: grab; user-select: none; }
 .ai-grip { color: var(--ink-4); font-size: 16px; line-height: 1; margin-right: -5px; }
 .ai-min {
@@ -707,6 +708,24 @@ select.input { appearance: none; background-image: none; cursor: pointer; }
 .ai-checks .pass { color: var(--green); }
 .ai-checks .fail { color: var(--pcc-red); }
 .ai-reason { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+/* 大白话回答：一句结论醒目 + 要点短句，原始记录默认折叠 */
+.ai-card.ai-plain { border-left: 3px solid var(--pcc-red); }
+.ai-headline {
+  font-size: 14.5px; line-height: 1.75; font-weight: 700; color: var(--ink);
+  background: linear-gradient(180deg, rgba(255,248,202,.55), rgba(255,248,202,.12));
+  border-radius: 10px; padding: 11px 13px; margin-bottom: 12px;
+}
+.ai-plain-line { font-size: 13px; line-height: 1.7; color: var(--ink-2); margin-bottom: 5px; }
+.ai-evidence-fold { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 8px; }
+.ai-evidence-fold summary {
+  cursor: pointer; list-style: none; font-size: 12px; font-weight: 600; color: var(--ink-3);
+  padding: 4px 0; user-select: none;
+}
+.ai-evidence-fold summary::-webkit-details-marker { display: none; }
+.ai-evidence-fold summary::before { content: '▸ '; color: var(--pcc-red); }
+.ai-evidence-fold[open] summary::before { content: '▾ '; }
+.ai-evidence-fold summary:hover { color: var(--pcc-red); }
+.ai-evidence-list { margin-top: 6px; }
 
 .ai-foot { padding: 14px 22px 18px; border-top: 1px solid var(--line-2); }
 .ai-input-row { display: flex; gap: 10px; }
@@ -2194,7 +2213,7 @@ body { padding: 30px; }
 /* 7) AI 浮窗：消息少时不再固定 620px 高度撑出空白；
       内容多时仍可滚动并可拖动。 */
 .ai-drawer { height: auto; max-height: min(620px, calc(100vh - 48px)); min-height: 232px; }
-.ai-drawer.minimized { height: 58px; }
+.ai-drawer.enlarged { max-height: min(1180px, calc(100vh - 48px)); min-height: 420px; }
 
 /* 8) 详情/下钻：门店对比固定为「左侧排名 + 右侧单店下钻」两列。
  *    之前用 auto-fit minmax(320px) 会在宽屏拆成 3 列、第三列空置，排版错乱。

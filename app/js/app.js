@@ -100,8 +100,8 @@
     // AI 抽屉
     ai: {
       open: false, tab: 'draft', state: 'idle', // idle|generating|result|blocked|failed|denied
-      history: [], lastResult: null, lastInput: '',
-      minimized: false, pos: null,   // 液态浮窗：折叠状态与记忆位置
+      history: [], lastResult: null, lastInput: '', lastSent: '',
+      enlarged: false, pos: null, userMoved: false,   // 液态浮窗：放大状态与记忆位置
     },
     lastMetrics: null,
   };
@@ -351,7 +351,7 @@
     $('#brandLogo', root).innerHTML = global.UI.pccLogo(40);
 
     // 顶部搜索栏：点击打开 AI 助手浮窗
-    $('#aiSearch', root).addEventListener('click', () => { S.ai.minimized = false; toggleAI(true); });
+    $('#aiSearch', root).addEventListener('click', () => { S.ai.enlarged = false; toggleAI(true); });
 
     // 语言切换（账号信息左侧）
     const langBtn = el('button', 'lang-btn', `<span class="lang-globe">◎</span><span id="langLabel">简体中文</span>`);
@@ -3568,6 +3568,14 @@
     S.ai.pos = { x: Math.round(r.left), y: Math.round(r.top) };
     try { localStorage.setItem(AI_POS_KEY, JSON.stringify(S.ai.pos)); } catch (e) { /* 隐私模式忽略 */ }
   }
+  /** 点击检索框打开时，把浮窗锚定到检索框正下方（右缘对齐），随后仍可自由拖动 */
+  function anchorAIBelowSearch(d) {
+    const s = $('#aiSearch');
+    if (!s || !d) return;
+    const sr = s.getBoundingClientRect();
+    const w = d.offsetWidth || 408;
+    moveAIFloat(d, sr.right - w, sr.bottom + 10);
+  }
   function initAIFloat() {
     const d = $('#aiDrawer');
     if (!d || d.dataset.floatReady) return;
@@ -3598,6 +3606,7 @@
     const stop = () => {
       if (!dragging) return;
       dragging = false; d.classList.remove('dragging');
+      S.ai.userMoved = true;   // 用户手动拖过：后续打开沿用该位置，不再自动锚定到检索框下方
       saveAIFloat(d);
     };
     d.addEventListener('pointerup', stop);
@@ -3612,6 +3621,12 @@
 
   function toggleAI(open) {
     S.ai.open = open;
+    const d = $('#aiDrawer');
+    // 首次打开锚定到检索框正下方；用户手动拖动过则沿用其位置
+    if (open && d) {
+      if (S.ai.userMoved && S.ai.pos && Number.isFinite(S.ai.pos.x)) moveAIFloat(d, S.ai.pos.x, S.ai.pos.y);
+      else anchorAIBelowSearch(d);
+    }
     renderAI();
     if (open && !S.ai.history.length) {
       S.ai.history.push({ role: 'ai', kind: 'welcome' });
@@ -3624,7 +3639,7 @@
     const aiSearch = $('#aiSearch');
     if (!d) return;
     d.classList.toggle('open', S.ai.open);
-    d.classList.toggle('minimized', !!S.ai.minimized && S.ai.open);
+    d.classList.toggle('enlarged', !!S.ai.enlarged && S.ai.open);
     // 已有模态窗口打开时禁用顶部搜索入口
     const modalOpen = !!document.querySelector('.overlay');
     if (aiSearch) aiSearch.disabled = modalOpen;
@@ -3641,7 +3656,7 @@
           <h2>${esc(t('ai.title'))}</h2>
           <div class="sub">${esc(acc.display_name || acc.name)} · ${esc(acc.scope_type === 'store' ? E.utils.storeLabel(acc.scope_id) : '全港范围')}</div>
         </div>
-        <button class="ai-min" id="aiMin" title="折叠 / 展开">${S.ai.minimized ? DASH_ICONS.expand : DASH_ICONS.collapse}</button>
+        <button class="ai-min" id="aiMin" title="${esc(t('ai.enlarge'))}">${DASH_ICONS.expand}</button>
         <button class="modal-close" id="aiClose">${SVG.close}</button>
       </div>
       <div class="ai-body" id="aiBody"></div>
@@ -3655,13 +3670,17 @@
 
     $('#aiClose', d).addEventListener('click', () => toggleAI(false));
     $('#aiMin', d).addEventListener('click', () => {
-      S.ai.minimized = !S.ai.minimized;
+      S.ai.enlarged = !S.ai.enlarged;
+      // 放大/还原只改变尺寸：先记录左上角，重绘后再夹回视口内，避免放大后溢出屏幕
+      const keep = d.getBoundingClientRect();
+      const kx = keep.left, ky = keep.top;
       renderAI();
-      // 折叠只改变尺寸，位置必须原地保留
-      if (S.ai.pos && Number.isFinite(S.ai.pos.x)) {
-        d.style.left = S.ai.pos.x + 'px';
-        d.style.top = S.ai.pos.y + 'px';
-      }
+      requestAnimationFrame(() => {
+        moveAIFloat(d, kx, ky);
+        saveAIFloat(d);
+        const b = $('#aiBody', d);
+        if (b) b.scrollTop = b.scrollHeight;
+      });
     });
 
     // 快捷入口（按角色与当前页面启用，其余禁用）
@@ -3733,7 +3752,7 @@
       body.appendChild(f);
       const b = el('button', 'btn btn-ghost btn-sm', esc(t('ai.retry')));
       b.style.marginTop = '10px';
-      b.addEventListener('click', () => sendAI(S.ai.lastInput));
+      b.addEventListener('click', () => sendAI(S.ai.lastSent || S.ai.lastInput));
       body.appendChild(b);
     }
 
@@ -3791,23 +3810,28 @@
     frag.style.width = '100%';
 
     if (h.kind === 'explain') {
-      const card = el('div', 'ai-card');
-      card.innerHTML = `<h4>${esc(h.title)}</h4>`
-        + h.lines.map((l) => `<div style="font-size:13.5px;line-height:1.7;margin-bottom:6px">${esc(l)}</div>`).join('');
+      const card = el('div', 'ai-card ai-plain');
+      // 先用一句大白话讲清结果，用户扫一眼就懂
+      card.innerHTML = `<h4>${esc(h.title || t('ai.explain.title'))}</h4>`
+        + (h.headline ? `<div class="ai-headline">${esc(h.headline)}</div>` : '')
+        + h.lines.map((l) => `<div class="ai-plain-line">${esc(l)}</div>`).join('');
+      // 原始记录不再一上来铺一大段：折叠收起，想核对时再点开
       if (h.evidence && h.evidence.length) {
-        const ev = el('div', '');
-        ev.style.marginTop = '14px';
-        ev.innerHTML = `<div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(t('ai.evidence'))}</div>`
-          + h.evidence.map((e) => `<div class="dl-row" style="padding:9px 0;font-size:12.5px">
-              <span class="k mono">${esc(e.ref)}</span>
-              <span class="v t-small">${esc(e.code)} · ${esc(e.at.replace('T', ' '))}<br><span class="t-muted">${esc(e.reason)}</span></span>
-            </div>`).join('');
-        card.appendChild(ev);
+        const det = el('details', 'ai-evidence-fold');
+        const sum = el('summary', '', esc(t('ai.evidence.more', { n: h.evidence.length })));
+        det.appendChild(sum);
+        const ev = el('div', 'ai-evidence-list');
+        ev.innerHTML = h.evidence.map((e) => `<div class="dl-row" style="padding:9px 0;font-size:12.5px">
+            <span class="k mono">${esc(e.ref)}</span>
+            <span class="v t-small">${esc(e.code)} · ${esc(e.at.replace('T', ' '))}<br><span class="t-muted">${esc(e.reason)}</span></span>
+          </div>`).join('');
+        det.appendChild(ev);
+        card.appendChild(det);
       }
       if (h.ruleVersion) {
         const rv = el('div', 'ai-reason');
         rv.style.marginTop = '10px';
-        rv.textContent = `规则版本：${h.ruleVersion} · 本解释不提供直接重试或发送按钮`;
+        rv.textContent = `规则版本：${h.ruleVersion} · 结果可追溯，AI 不会自行发券`;
         card.appendChild(rv);
       }
       if (h.denied) card.style.borderColor = '#F3D6DA';
@@ -4021,7 +4045,7 @@
 
   function pushResult(res) {
     S.ai.history.push({ role: 'ai', kind: res.kind, result: res,
-      title: res.title, lines: res.lines, evidence: res.evidence,
+      title: res.title, headline: res.headline, lines: res.lines, evidence: res.evidence,
       ruleVersion: res.ruleVersion, denied: res.denied });
     S.ai.state = 'result';
     renderAI();
@@ -4038,7 +4062,11 @@
     const enabled = caps.filter((c) => c.enabled).map((c) => c.key);
     if (!enabled.length) { toast(t('ai.state.denied'), 'warn'); return; }
 
-    S.ai.lastInput = input;
+    // 发送后立即清空输入框；另存最近一次问题，供失败时「重试」使用
+    S.ai.lastSent = input;
+    S.ai.lastInput = '';
+    const inputEl = $('#aiInput');
+    if (inputEl) inputEl.value = '';
     S.ai.history.push({ role: 'user', text: input });
     S.ai.state = 'generating';
     renderAI();
@@ -4062,7 +4090,7 @@
         }
         S.ai.state = 'result';
         S.ai.history.push({
-          role: 'ai', kind: res.kind, result: res, title: res.title,
+          role: 'ai', kind: res.kind, result: res, title: res.title, headline: res.headline,
           lines: res.lines, evidence: res.evidence, ruleVersion: res.ruleVersion, denied: res.denied,
         });
       } catch (err) {
