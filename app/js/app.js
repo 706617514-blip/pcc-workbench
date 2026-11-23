@@ -1393,12 +1393,12 @@
       </div>`;
     mountDetailDate($('.chart-head', chartCard));
     const trendInsight = el('div', 'trend-insight');
-    trendInsight.innerHTML = `<span>${esc(t('ov.trend.avg'))} <b>${num(Math.round(trendAvg))}</b> / ${esc(t('ov.trend.day'))}</span>
+    trendInsight.innerHTML = `<span>${esc(t('ov.trend.avg'))} <b>${num(Math.round(trendAvg))}</b></span>
       <span>${esc(t('ov.trend.peak'))} <b>${num(trendPeak)}</b></span>
       <span>${esc(t('ov.trend.low'))} <b>${num(trendLow)}</b></span>`;
     chartCard.appendChild(trendInsight);
     const trendDetailKpis = detailKpis([
-      { label: t('ov.trend.avg'), value: `${num(Math.round(trendAvg))} / ${t('ov.trend.day')}` },
+      { label: t('ov.trend.avg'), value: num(Math.round(trendAvg)) },
       { label: t('ov.trend.peak'), value: num(trendPeak) },
       { label: t('ov.trend.low'), value: num(trendLow) },
     ]);
