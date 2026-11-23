@@ -2356,9 +2356,6 @@ body { padding: 30px; }
   padding-bottom: 12px; border-bottom: 1px solid var(--line-2);
 }
 .heat-detail-seg { flex: 0 0 auto; }
-.heat-detail-range { display: flex; align-items: center; gap: 10px; flex: 1 1 300px; min-width: 0; }
-.heat-detail-range-label { font-size: 12px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
-.heat-detail-range .control { flex: 1 1 260px; min-width: 220px; }
 .heat-detail-grid { min-width: 0; }
 /* 正常流：heat panel 嵌在 heat-host 内，随同行等高网格拉伸 */
 .dash-normal .heat-host > .heat-panel { height: 100%; }
@@ -2469,13 +2466,6 @@ body { padding: 30px; }
   grid-template-columns: 96px minmax(0, 1fr);
 }
 .heat-detail-tool { justify-content: flex-start; }
-.heat-detail-range { flex: 0 1 auto; min-width: 0; }
-.heat-detail-range .control {
-  flex: 0 0 240px;
-  width: 240px;
-  min-width: 0;
-  max-width: 240px;
-}
 
 
 /* ==========================================================================
@@ -2548,6 +2538,7 @@ body { padding: 30px; }
 }
 .detail-kpis .kpi { justify-content: flex-start; min-width: 0; text-align: left; }
 .detail-kpis .kpi .metric-value { white-space: normal; overflow-wrap: anywhere; }
+.detail-kpis .kpi .metric-foot { margin-top: 2px; }
 .detail-kpis .metric-value-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
   position: relative; z-index: 1;
@@ -2597,6 +2588,18 @@ body { padding: 30px; }
  * ========================================================================== */
 .chart-title-wrap {
   display: flex; align-items: center; gap: 10px; min-width: 0;
+}
+.dash-normal .detail-date-range { display: none; }
+.dash-stage .detail-date-panel { overflow: visible; }
+.dash-stage .detail-date-head {
+  display: flex; flex-wrap: wrap; justify-content: flex-start;
+  gap: 10px 14px; position: relative; z-index: 2;
+}
+.dash-stage .detail-date-head > .legend { margin-left: auto; }
+.detail-date-range { flex: 0 1 266px; min-width: 0; }
+.detail-date-range .calendar { width: min(306px, calc(100vw - 80px)); }
+@media (max-width: 640px) {
+  .detail-date-range { flex-basis: 100%; }
 }
 .chart-icon {
   width: 30px; height: 30px; flex: 0 0 30px; border-radius: 10px;

@@ -75,6 +75,7 @@
   }
 
   /* ------------------------------------------------------------ 状态 */
+  const DEFAULT_OVERVIEW_FROM = '2026-10-01';
   const S = {
     page: 'overview',
     loggedIn: false,
@@ -84,7 +85,7 @@
     cdEscapeBack: null,   // 活动详情下钻：Esc 先返回「发放结果」再关闭弹窗
     // 看板筛选（PRD 5.1）
     ov: {
-      couponTypes: [], campaignIds: [], dateFrom: '2026-10-01', dateTo: C.DATA_TODAY,
+      couponTypes: [], campaignIds: [], dateFrom: DEFAULT_OVERVIEW_FROM, dateTo: C.DATA_TODAY,
       storeFilter: null, activityFilter: null, focus: null,
       heatDetail: { view: 'week', from: null, to: null },  // 热力图详情页：快捷区间 + 短时间筛选窗口
       storeMetric: 'used', storeSortDir: -1, drillStore: null,
@@ -733,7 +734,7 @@
 
   function detailKpis(items) {
     const row = el('div', 'detail-kpis');
-    items.forEach(({ label, value, delta }) => row.appendChild(kpiCard(label, value, { delta, inlineDelta: true })));
+    items.forEach(({ label, value, delta, hint }) => row.appendChild(kpiCard(label, value, { delta, hint, inlineDelta: true })));
     return row;
   }
 
@@ -935,6 +936,26 @@
     // 门店总览：门店范围固定
     if (store) S.ov.storeFilter = myStore;
 
+    function setOverviewDates(from, to) {
+      S.ov.dateFrom = from || DEFAULT_OVERVIEW_FROM;
+      S.ov.dateTo = to || C.DATA_TODAY;
+    }
+
+    function mountDetailDate(head, options = {}) {
+      head.classList.add('detail-date-head');
+      head.parentElement.classList.add('detail-date-panel');
+      const picker = rangePicker({
+        from: S.ov.dateFrom, to: S.ov.dateTo, today: C.DATA_TODAY,
+        maxDate: C.DATA_TODAY, closeOnSelect: true,
+        onChange: (from, to) => { setOverviewDates(from, to); render(); },
+        ...options,
+      });
+      picker.classList.add('detail-date-range');
+      picker.setAttribute('aria-label', t('ov.filter.date'));
+      head.insertBefore(picker, $('.legend', head));
+      return picker;
+    }
+
     // 筛选栏：日期范围、券种多选、门店范围、应用、重置，全部保留不动
     const bar = el('div', 'filterbar');
     const row = el('div', 'filterbar-row');
@@ -980,10 +1001,7 @@
       from: S.ov.dateFrom, to: S.ov.dateTo, today: C.DATA_TODAY,
       maxDate: C.DATA_TODAY,
       staged: true, onStage: markPending,
-      onChange: (a, b) => {
-        if (a && b) { S.ov.dateFrom = a; S.ov.dateTo = b; }
-        else { S.ov.dateFrom = '2026-10-01'; S.ov.dateTo = C.DATA_TODAY; }
-      },
+      onChange: setOverviewDates,
     });
     rp.style.minWidth = '260px';
     fDate.appendChild(rp); fDate.style.flex = '0 0 280px';
@@ -1004,7 +1022,7 @@
     reset.style.marginLeft = '10px';
     reset.addEventListener('click', () => {
       S.ov.couponTypes = []; S.ov.campaignIds = [];
-      S.ov.dateFrom = '2026-10-01'; S.ov.dateTo = C.DATA_TODAY;
+      setOverviewDates();
       S.ov.storeFilter = isStore() ? acc.scope_id : null;
       S.ov.activityFilter = null;
       render();
@@ -1163,8 +1181,11 @@
       : (S.ov.storeFilter ? E.utils.storeLabel(S.ov.storeFilter) : '全港门店');
 
     // 上一等长周期：让核心数字保留「较上期」标注
-    const dayCount = Math.max(1, Math.round(
-      (new Date(S.ov.dateTo) - new Date(S.ov.dateFrom)) / 86400000) + 1);
+    const dayCount = daysInclusive(S.ov.dateFrom, S.ov.dateTo);
+    const coverage = {
+      label: t('ov.detail.coverage'), value: `${num(dayCount)} ${t('ov.trend.day')}`,
+      hint: `${S.ov.dateFrom.replaceAll('-', '/')} — ${S.ov.dateTo.replaceAll('-', '/')}`,
+    };
     const prev = E.computeMetrics({
       ...S.ov,
       dateFrom: E.utils.addDays(S.ov.dateFrom, -dayCount),
@@ -1226,7 +1247,7 @@
       if (key === 'issued') {
         blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued), delta: kpiDeltas.issued },
-          { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
+          coverage,
           { label: t('ov.detail.campaigns'), value: num(metrics.byCampaign.filter((x) => x.issued > 0).length) },
           { label: t('ov.detail.types'), value: num(typeIssued.length) },
         ]));
@@ -1288,7 +1309,7 @@
         blocks.push(detailSection(t('ov.detail.typeUsed'), detailBars(usedByType)));
         blocks.push(detailSection(t('ov.detail.slotUsed'), detailBars(slotUsed)));
       } else if (key === 'applicable') {
-        const apps = DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, acc.scope_id));
+        const apps = metrics.applicable_campaign_list;
         blocks.push(detailKpis([
           { label: t('ov.detail.applicable'), value: num(apps.length) },
           { label: t('ov.detail.types'), value: num(new Set(apps.map((c) => c.coupon_type)).size) },
@@ -1301,7 +1322,7 @@
       } else if (key === 'anomaly') {
         blocks.push(detailKpis([
           { label: t('ov.metric.anomaly'), value: num(metrics.anomalies.length) },
-          { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
+          coverage,
         ]));
         blocks.push(detailSection(t('ov.detail.anomaly'), detailList(metrics.anomalies.map((a) => ({
           title: a.label, meta: `${a.code} · ${a.reason}`, tag: (a.at || '').slice(5, 16),
@@ -1341,6 +1362,7 @@
         detail: () => {
           if (detail.dataset.built) return;
           const p = panel(def.title, t('ov.detail.sub'), def.icon);
+          mountDetailDate($('.dash-panel-head', p.root));
           p.body.classList.add('detail-body');
           kpiBlocks(def.key).forEach((b) => p.body.appendChild(b));
           detail.appendChild(p.root);
@@ -1362,6 +1384,7 @@
           <span><i class="${store ? 'lg-issued' : 'lg-used'}"></i>${esc(t('ov.legend.used'))}</span>
         </div>
       </div>`;
+    mountDetailDate($('.chart-head', chartCard));
     const trendInsight = el('div', 'trend-insight');
     trendInsight.innerHTML = `<span>${esc(t('ov.trend.avg'))} <b>${num(Math.round(trendAvg))}</b> / ${esc(t('ov.trend.day'))}</span>
       <span>${esc(t('ov.trend.peak'))} <b>${num(trendPeak)}</b></span>
@@ -1491,6 +1514,7 @@
       /** 门店对比详情：全部排名 + 点击任一门店展示该店下钻图表 */
       function buildStoreDetail() {
         const p = panel(t('ov.store.title'), t('ov.store.detail.sub'), DASH_ICONS.summary);
+        mountDetailDate($('.dash-panel-head', p.root));
         p.root.classList.add('store-detail-panel');
         storeDetailHost.appendChild(p.root);
         p.body.classList.add('detail-body', 'store-detail-body');
@@ -1660,6 +1684,7 @@
       if (couponDetailBuilt) return;
       couponDetailBuilt = true;
       const p = panel(t('ov.coupon.bar'), t('ov.coupon.detail.sub'), DASH_ICONS.ticket);
+      mountDetailDate($('.dash-panel-head', p.root));
       p.root.classList.add('coupon-detail-panel');
       p.body.classList.add('coupon-detail-body');
       couponDetailHost.appendChild(p.root);
@@ -1849,19 +1874,20 @@
       });
       tool.appendChild(seg);
 
-      const rpWrap = el('div', 'heat-detail-range');
-      rpWrap.appendChild(el('span', 'heat-detail-range-label', esc(t('ov.heat.detail.range'))));
-      const rp = rangePicker({
-        from: hd.from || S.ov.dateFrom, to: hd.to || S.ov.dateTo,
-        today: C.DATA_TODAY, minDate: S.ov.dateFrom, maxDate: S.ov.dateTo,
+      const rp = mountDetailDate($('.dash-panel-head', p.root), {
+        minDate: S.ov.dateFrom, maxDate: S.ov.dateTo,
         onChange: (a, b) => {
-          if (!a || !b) return;
-          hd.view = 'custom'; hd.from = a; hd.to = b;
+          if (a && b) {
+            hd.view = 'custom'; hd.from = a; hd.to = b;
+          } else {
+            hd.view = 'week';
+            const r = detailRange(hd.view);
+            hd.from = r.from; hd.to = r.to;
+            rp.setValue(r.from, r.to);
+          }
           syncSeg(); drawDetailHeat();
         },
       });
-      rpWrap.appendChild(rp);
-      tool.appendChild(rpWrap);
       p.body.appendChild(tool);
 
       const detailGrid = el('div', 'heat-detail-grid');

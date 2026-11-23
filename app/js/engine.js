@@ -1129,7 +1129,8 @@
 
     // 最近异常（PRD 表 12）
     const anomalies = [];
-    DB.sendAttempt.filter((a) => a.code && a.code !== 'COUPON_CREATED' && a.code !== 'RETRY_OK')
+    DB.sendAttempt.filter((a) => a.at && inRange(a.at, dateFrom, dateTo) &&
+      a.code && a.code !== 'COUPON_CREATED' && a.code !== 'RETRY_OK')
       .slice(-60).reverse().forEach((a) => {
         anomalies.push({
           type: a.result === 'failed' ? 'send_failed' : 'blocked',
@@ -1138,6 +1139,12 @@
           label: ANOMALY_LABEL[a.code] || a.code,
         });
       });
+
+    const applicableCampaigns = storeScoped ? DB.campaigns.filter((c) =>
+      c.status === 'running' && campaignCoversStore(c, myStore) &&
+      (!c.created_at || c.created_at.slice(0, 10) <= dateTo) &&
+      (!c.valid_from || c.valid_from <= dateTo) &&
+      (!c.valid_until || c.valid_until >= dateFrom)) : [];
 
     return {
       issued: issued.length, claimed: claimed.length, used: used.length,
@@ -1151,8 +1158,8 @@
       updated_at: C.NOW_LABEL,
       // 门店总览专用
       store_scoped: storeScoped, store_id: storeScoped ? myStore : null,
-      applicable_campaigns: storeScoped ? DB.campaigns.filter((c) => c.status === 'running' &&
-        campaignCoversStore(c, myStore)).length : null,
+      applicable_campaigns: storeScoped ? applicableCampaigns.length : null,
+      applicable_campaign_list: applicableCampaigns,
     };
   }
 

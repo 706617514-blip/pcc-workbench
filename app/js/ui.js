@@ -410,7 +410,7 @@
    * 第二次点击早于开始日时，以该日重设开始日。
    * ==============================================================*/
   function rangePicker(opts) {
-    const { from, to, onChange, minDate, maxDate, staged, onStage } = opts;
+    const { from, to, onChange, minDate, maxDate, staged, onStage, closeOnSelect } = opts;
     const wrap = el('div', 'control');
     wrap.innerHTML = `<span class="ctrl-value"></span><span class="ctrl-caret">${SVG.caret}</span>`;
     const valueEl = $('.ctrl-value', wrap);
@@ -513,7 +513,10 @@
         e.stopPropagation();
         start = null; end = null; selecting = false; resetDraft = true; renderLabel();
         if (staged) { if (onStage) onStage(); }
-        else onChange(null, null);
+        else {
+          if (closeOnSelect) closePanel();
+          onChange(null, null);
+        }
       });
       foot.appendChild(reset);
       panel.appendChild(foot);
@@ -538,7 +541,10 @@
       renderLabel();
       if (staged) {
         if (onStage) onStage();
-      } else if (!selecting) { onChange(start, end); }
+      } else if (!selecting) {
+        if (closeOnSelect) closePanel();
+        onChange(start, end);
+      }
     }
     function openPanel() {
       if (open) return;
