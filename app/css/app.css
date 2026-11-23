@@ -1823,6 +1823,10 @@ body { padding: 30px; }
 .detail-chart-title { font-size: 12px; font-weight: 700; color: var(--ink-3); margin-bottom: 8px; }
 .detail-chart canvas { display: block; width: 100%; }
 .detail-bars { display: flex; flex-direction: column; gap: 7px; }
+/* 券种实付卡片填满所在网格行，和同排趋势图齐平；单列时随内容定高。 */
+.dash-module[data-mod="paid"] .detail-body > .detail-section:not(.is-wide) {
+  display: grid;
+}
 .detail-bar-row {
   width: 100%; display: grid; grid-template-columns: minmax(96px, 160px) minmax(0, 1fr) 70px;
   align-items: center; gap: 10px; padding: 6px 4px;
