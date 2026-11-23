@@ -640,12 +640,17 @@
     const mondays = new Set();
     const n = daysInclusive(from, to);
     for (let i = 0; i < n && i < 400; i++) mondays.add(mondayOf(E.utils.addDays(from, i)));
-    let idx = 0;
-    return Array.from(mondays).sort().map((m) => {
+    return Array.from(mondays).sort().map((m, i) => {
       const end = E.utils.addDays(m, 6);
       const s = m < from ? from : m;
       const e = end > to ? to : end;
-      return { from: s, to: e, label: t('ov.heat.weekN', { n: ++idx }) };
+      const first = s.slice(5).replace('-', '/');
+      const last = e.slice(5).replace('-', '/');
+      return {
+        from: s, to: e,
+        label: t('ov.heat.weekN', { n: i + 1 }),
+        dateRange: s === e ? first : `${first}–${last}`,
+      };
     });
   }
 
@@ -1758,7 +1763,9 @@
 
       rows.forEach((r, i) => {
         const rowEl = el('div', 'heat-row');
-        rowEl.appendChild(el('div', 'heat-row-label', esc(r.label)));
+        const rowLabel = r.dateRange ? `${esc(r.label)}<br>${esc(r.dateRange)}` : esc(r.label);
+        rowEl.appendChild(el('div', 'heat-row-label', rowLabel));
+        const period = r.dateRange ? `${r.label} (${r.dateRange})` : r.label;
         const cells = el('div', 'heat-grid');
         HEAT_SLOTS.forEach((s, j) => {
           const v = grid[i][j];
@@ -1766,7 +1773,7 @@
           const cell = el('div', 'heat-cell' + (peaks.has(`${i}:${j}`) ? ' is-peak' : '') + (ratio > .62 ? ' on-dark' : ''));
           cell.style.backgroundColor = heatColor(ratio);
           cell.textContent = String(v);
-          cell.title = `${r.label} · ${t(s.labelKey)}：${v} ${t('ov.heat.unit')}`;
+          cell.title = `${period} · ${t(s.labelKey)}：${v} ${t('ov.heat.unit')}`;
           cells.appendChild(cell);
         });
         rowEl.appendChild(cells);
