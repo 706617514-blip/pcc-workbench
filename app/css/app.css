@@ -1248,7 +1248,10 @@ th.sortable[aria-sort="ascending"], th.sortable[aria-sort="descending"] { color:
 /* --------- 数据大盘 v2：趋势 + 漏斗 + 券种矩阵 --------- */
 .dash-mid-v2 { grid-template-columns: minmax(0, 1.28fr) minmax(380px, 1fr); align-items: stretch; }
 .dash-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.dash-chart canvas { display: block; width: 100%; }
+.dash-chart { display: flex; flex-direction: column; }
+.dash-trend-plot { position: relative; flex: 1 0 auto; min-height: 200px; }
+.dash-trend-plot canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.dash-stage .dash-trend-plot { min-height: 420px; }
 .kpi .metric-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .kpi-delta {
   display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 8px;
@@ -1665,7 +1668,6 @@ body { padding: 30px; }
  * ========================================================================== */
 #content > .dash-kpis { margin-bottom: 20px; }
 .dash-chart { margin-bottom: 20px; }
-.dash-chart canvas { min-height: 160px; }
 
 /* ---------- 门店对比：核销数 / 实付 TOP5 ---------- */
 .store-seg { margin-left: auto; gap: 3px; padding: 3px; background: rgba(45, 18, 13, .055); border-radius: 10px; }
@@ -2327,8 +2329,6 @@ body { padding: 30px; }
 .dash-normal .store-host,
 .dash-normal .store-host > .dash-panel,
 .dash-normal .store-detail-host { height: 100%; }
-
-/* 趋势卡：折线图高度由 JS 按卡片可用空间动态绘制（见 drawTrend），拉伸时不堆空白 */
 
 /* 券种卡：列表在拉伸后的卡片内均匀分布并填满，避免底部留大片空白 */
 .dash-normal [data-mod="coupon"] > .mod-full > .dash-panel { display: flex; flex-direction: column; }

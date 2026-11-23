@@ -76,6 +76,7 @@
 
   /* ------------------------------------------------------------ 状态 */
   const DEFAULT_OVERVIEW_FROM = '2026-10-01';
+  let trendResizeObserver;
   const S = {
     page: 'overview',
     loggedIn: false,
@@ -390,6 +391,8 @@
     S.loginRole = null;
     S.page = null;
     S.ai.open = false;
+    if (trendResizeObserver) trendResizeObserver.disconnect();
+    trendResizeObserver = null;
     sessionStorage.removeItem('pcc.accountKey');
     const root = $('#root');
     if (root) root.remove();
@@ -566,6 +569,10 @@
     });
 
     const content = $('#content');
+    if (trendResizeObserver) {
+      trendResizeObserver.disconnect();
+      trendResizeObserver = null;
+    }
     content.innerHTML = '';
     ({
       overview: renderOverview,
@@ -1139,7 +1146,7 @@
           setTimeout(() => { try { anim.cancel(); } catch (_) { /* noop */ } }, 520);
         });
       }
-      if (key === 'trend' || cur === 'trend') requestAnimationFrame(drawTrend);
+      if (!key || key === 'trend') requestAnimationFrame(drawTrend);
     }
     toolbar.querySelector('.focus-back').addEventListener('click', () => focusTo(null));
 
@@ -1397,35 +1404,33 @@
     ]);
     trendDetailKpis.classList.add('trend-detail-kpis');
     chartCard.appendChild(trendDetailKpis);
+    const plot = el('div', 'dash-trend-plot');
     const canvas = el('canvas');
-    chartCard.appendChild(canvas);
+    plot.appendChild(canvas);
+    chartCard.appendChild(plot);
     addMod({
       key: 'trend', title: t(store ? 'ov.trend.store' : 'ov.trend.simple'),
       meta: `${metrics.trend.length} 天`, icon: DASH_ICONS.chart,
       node: chartCard, home: trendCol,
     });
 
+    const trendLabels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
+    const trendSeries = [{ labels: trendLabels, data: primaryTrend, color: '#6B0B0C' }];
+    if (!store) trendSeries.push({ labels: trendLabels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' });
+
+    let drawnWidth = 0, drawnHeight = 0;
     function drawTrend() {
-      const labels = metrics.trend.map((x) => x.date.slice(5).replace('-', '/'));
-      const series = store
-        ? [{ labels, data: metrics.trend.map((x) => x.used), color: '#6B0B0C' }]
-        : [
-            { labels, data: metrics.trend.map((x) => x.issued), color: '#6B0B0C' },
-            { labels, data: metrics.trend.map((x) => x.used), color: '#7FA8B4' },
-          ];
-      // 正常流：卡片被同行等高网格拉伸，按内容区可用高度绘制曲线，消除卡内留白；
-      // 聚焦态用固定更大高度，保证放大后曲线更舒展。
-      let height = 420;
-      if (S.ov.focus !== 'trend') {
-        const cs = getComputedStyle(chartCard);
-        const head = chartCard.querySelector('.chart-head');
-        const ins = chartCard.querySelector('.trend-insight');
-        const avail = chartCard.clientHeight
-          - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-          - (head ? head.offsetHeight : 0) - (ins ? ins.offsetHeight : 0);
-        height = Math.max(200, Math.floor(avail));
-      }
-      lineChart(canvas, series, { height });
+      // 缩略条会隐藏图表；只按可见绘图区重绘，避免使用隐藏时的尺寸。
+      const width = plot.clientWidth;
+      const height = plot.clientHeight;
+      if (!width || !height || (width === drawnWidth && height === drawnHeight)) return;
+      lineChart(canvas, trendSeries, { height });
+      drawnWidth = width;
+      drawnHeight = height;
+    }
+    if (global.ResizeObserver) {
+      trendResizeObserver = new ResizeObserver(drawTrend);
+      trendResizeObserver.observe(plot);
     }
     requestAnimationFrame(drawTrend);
 
