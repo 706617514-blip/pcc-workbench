@@ -32,15 +32,18 @@
   /* ---------------------------------------------- 可视化组件（纯 DOM） */
 
   /** KPI 卡：数值 + 上一等长周期对比，数字必须带上下文 */
-  function kpiCard(label, value, hint, delta, icon, tone) {
+  function kpiCard(label, value, { hint, delta, tone, inlineDelta = false } = {}) {
     const m = el('div', 'metric kpi' + (tone ? ' ' + tone : ''));
     const d = delta && delta.text
       ? `<span class="kpi-delta${delta.good === true ? ' good' : delta.good === false ? ' bad' : ''}">${esc(delta.text)}</span>`
       : '';
-    const foot = d || hint ? `<div class="metric-foot">${d}<span>${esc(hint || '')}</span></div>` : '';
+    const valueText = `<div class="metric-value">${esc(value)}</div>`;
+    const valueRow = inlineDelta && d ? `<div class="metric-value-row">${valueText}${d}</div>` : valueText;
+    const footerDelta = inlineDelta ? '' : d;
+    const foot = footerDelta || hint ? `<div class="metric-foot">${footerDelta}<span>${esc(hint || '')}</span></div>` : '';
     m.innerHTML = `
       <div class="metric-label">${esc(label)}</div>
-      <div class="metric-value">${esc(value)}</div>${foot}`;
+      ${valueRow}${foot}`;
     return m;
   }
 
@@ -730,7 +733,7 @@
 
   function detailKpis(items) {
     const row = el('div', 'detail-kpis');
-    items.forEach(({ label, value }) => row.appendChild(kpiCard(label, value)));
+    items.forEach(({ label, value, delta }) => row.appendChild(kpiCard(label, value, { delta, inlineDelta: true })));
     return row;
   }
 
@@ -1174,6 +1177,13 @@
       const good = d >= 0;
       return { text: `${d >= 0 ? '↑' : '↓'} ${Math.abs(d).toFixed(1)}${isRate ? 'pt' : '%'} 较上期`, good };
     };
+    const kpiDeltas = {
+      issued: deltaOf(metrics.issued, prev.issued, false),
+      claim: deltaOf(metrics.claim_rate, prev.claim_rate, true),
+      redeem: deltaOf(metrics.redeem_rate, prev.redeem_rate, true),
+      paid: deltaOf(metrics.paid_amount, prev.paid_amount, false),
+      used: deltaOf(metrics.used, prev.used, false),
+    };
 
     /* ---------- KPI 详情：每个指标回答一个更细的问题 ---------- */
     function kpiBlocks(key) {
@@ -1215,7 +1225,7 @@
 
       if (key === 'issued') {
         blocks.push(detailKpis([
-          { label: t('ov.detail.issued'), value: num(metrics.issued) },
+          { label: t('ov.detail.issued'), value: num(metrics.issued), delta: kpiDeltas.issued },
           { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
           { label: t('ov.detail.campaigns'), value: num(metrics.byCampaign.filter((x) => x.issued > 0).length) },
           { label: t('ov.detail.types'), value: num(typeIssued.length) },
@@ -1228,7 +1238,7 @@
         blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
           { label: t('ov.detail.claimed'), value: num(metrics.claimed_of_issued) },
-          { label: t('ov.detail.rate'), value: pct(metrics.claim_rate) },
+          { label: t('ov.detail.rate'), value: pct(metrics.claim_rate), delta: kpiDeltas.claim },
           { label: t('ov.detail.prev'), value: pct(prev.claim_rate) },
         ]));
         blocks.push(detailChart(t('ov.detail.dayClaim'), [
@@ -1240,7 +1250,7 @@
         blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
           { label: t('ov.detail.used'), value: num(metrics.used_of_issued) },
-          { label: t('ov.detail.rate'), value: pct(metrics.redeem_rate) },
+          { label: t('ov.detail.rate'), value: pct(metrics.redeem_rate), delta: kpiDeltas.redeem },
           { label: t('ov.detail.prev'), value: pct(prev.redeem_rate) },
         ]));
         blocks.push(detailChart(t('ov.detail.dayUsed'),
@@ -1252,7 +1262,7 @@
         }), t('ov.store.rankHint'), true));
       } else if (key === 'paid') {
         blocks.push(detailKpis([
-          { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
+          { label: t('ov.detail.total'), value: money(metrics.paid_amount), delta: kpiDeltas.paid },
           { label: t('ov.detail.count'), value: num(scoped.length) },
           { label: t('ov.detail.aov'), value: money(aov) },
           { label: t('ov.detail.prev'), value: money(prev.paid_amount) },
@@ -1267,7 +1277,7 @@
         }), t('ov.store.rankHint'), true));
       } else if (key === 'used') {
         blocks.push(detailKpis([
-          { label: t('ov.detail.used'), value: num(metrics.used) },
+          { label: t('ov.detail.used'), value: num(metrics.used), delta: kpiDeltas.used },
           { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
           { label: t('ov.detail.aov'), value: money(aov) },
           { label: t('ov.detail.prev'), value: num(prev.used) },
@@ -1303,26 +1313,26 @@
     /* ---------- 模块 2：一排 4 个数字卡（每张可点开详情） ---------- */
     const kpiDefs = store ? [
       { key: 'used', title: t('ov.metric.used'), value: num(metrics.used), meta: `本店核销 ${num(metrics.used)}`, icon: DASH_ICONS.check,
-        card: kpiCard(t('ov.metric.used'), num(metrics.used), '本店发生的核销', deltaOf(metrics.used, prev.used, false), DASH_ICONS.check, 'tone-lemon') },
+        hint: '本店发生的核销', tone: 'tone-lemon' },
       { key: 'paid', title: t('ov.metric.paid'), value: money(metrics.paid_amount), meta: `实付 ${money(metrics.paid_amount)}`, icon: DASH_ICONS.coin,
-        card: kpiCard(t('ov.metric.paid'), money(metrics.paid_amount), '核销关联订单实付', deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-blue') },
+        hint: '核销关联订单实付', tone: 'tone-blue' },
       { key: 'applicable', title: t('ov.metric.applicable'), value: num(metrics.applicable_campaigns || 0), meta: '本店可核销活动', icon: DASH_ICONS.campaign,
-        card: kpiCard(t('ov.metric.applicable'), num(metrics.applicable_campaigns || 0), '总部与本店适用的运行中活动', null, DASH_ICONS.campaign, 'tone-rose') },
+        hint: '总部与本店适用的运行中活动', tone: 'tone-rose' },
       { key: 'anomaly', title: t('ov.metric.anomaly'), value: num(metrics.anomalies.length), meta: '需复核记录', icon: DASH_ICONS.alert,
-        card: kpiCard(t('ov.metric.anomaly'), num(metrics.anomalies.length), metrics.anomalies.length ? '需总部复核' : '链路运行正常', null, DASH_ICONS.alert, 'tone-sand') },
+        hint: metrics.anomalies.length ? '需总部复核' : '链路运行正常', tone: 'tone-sand' },
     ] : [
       { key: 'issued', title: t('ov.metric.issued'), value: num(metrics.issued), meta: `发放 ${num(metrics.issued)}`, icon: DASH_ICONS.ticket,
-        card: kpiCard(t('ov.metric.issued'), num(metrics.issued), `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`, deltaOf(metrics.issued, prev.issued, false), DASH_ICONS.ticket, 'tone-lemon') },
+        hint: `${scopeLabel} · 覆盖 ${metrics.trend.length} 天`, tone: 'tone-lemon' },
       { key: 'claim', title: t('ov.label.claim_rate'), value: pct(metrics.claim_rate), meta: `领取率 ${pct(metrics.claim_rate)}`, icon: DASH_ICONS.check,
-        card: kpiCard(t('ov.label.claim_rate'), pct(metrics.claim_rate), `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`, deltaOf(metrics.claim_rate, prev.claim_rate, true), DASH_ICONS.check, 'tone-blue') },
+        hint: `已领取 ${num(metrics.claimed_of_issued)} / 发放 ${num(metrics.issued)} 张`, tone: 'tone-blue' },
       { key: 'redeem', title: t('ov.label.redeem_rate'), value: pct(metrics.redeem_rate), meta: `核销率 ${pct(metrics.redeem_rate)}`, icon: DASH_ICONS.campaign,
-        card: kpiCard(t('ov.label.redeem_rate'), pct(metrics.redeem_rate), `已核销 ${num(metrics.used_of_issued)} 张`, deltaOf(metrics.redeem_rate, prev.redeem_rate, true), DASH_ICONS.campaign, 'tone-rose') },
+        hint: `已核销 ${num(metrics.used_of_issued)} 张`, tone: 'tone-rose' },
       { key: 'paid', title: t('ov.label.related_paid'), value: money(metrics.paid_amount), meta: `实付 ${money(metrics.paid_amount)}`, icon: DASH_ICONS.coin,
-        card: kpiCard(t('ov.label.related_paid'), money(metrics.paid_amount), '本期核销带来的实际支付', deltaOf(metrics.paid_amount, prev.paid_amount, false), DASH_ICONS.coin, 'tone-sand') },
+        hint: '本期核销带来的实际支付', tone: 'tone-sand' },
     ];
     kpiDefs.forEach((def) => {
       const body = el('div', 'kpi-module-body');
-      body.appendChild(def.card);
+      body.appendChild(kpiCard(def.title, def.value, { hint: def.hint, delta: kpiDeltas[def.key], tone: def.tone }));
       const detail = el('div', 'kpi-detail');
       body.appendChild(detail);
       addMod({
@@ -1332,9 +1342,6 @@
           if (detail.dataset.built) return;
           const p = panel(def.title, t('ov.detail.sub'), def.icon);
           p.body.classList.add('detail-body');
-          const hero = el('div', 'detail-hero');
-          hero.innerHTML = `<span>${esc(def.title)}</span><b>${esc(def.value)}</b>${def.card.querySelector('.kpi-delta') ? `<em class="${def.card.querySelector('.kpi-delta').className.replace('kpi-delta', '').trim()}">${esc(def.card.querySelector('.kpi-delta').textContent)}</em>` : ''}`;
-          p.body.appendChild(hero);
           kpiBlocks(def.key).forEach((b) => p.body.appendChild(b));
           detail.appendChild(p.root);
           detail.dataset.built = '1';

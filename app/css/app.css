@@ -1791,18 +1791,6 @@ body { padding: 30px; }
 .dash-board.is-focused .dash-stage > .dash-module[data-kind="kpi"] .kpi-module-body > .kpi { display: none; }
 .dash-board.is-focused .dash-stage > .dash-module[data-kind="kpi"] .kpi-module-body > .kpi-detail { display: block; height: 100%; }
 .detail-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
-.detail-hero {
-  grid-column: 1 / -1; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-  padding: 4px 2px 14px; border-bottom: 1px solid var(--line-2);
-}
-.detail-hero > span { font-size: 13px; font-weight: 700; color: var(--ink-3); }
-.detail-hero > b { font-size: 34px; line-height: 1; color: var(--pcc-red); font-variant-numeric: tabular-nums; }
-.detail-hero > em {
-  font-style: normal; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px;
-  background: rgba(45, 18, 13, .06); color: var(--ink-3);
-}
-.detail-hero > em.good { background: rgba(107, 11, 12, .08); color: var(--pcc-red); }
-.detail-hero > em.bad { background: rgba(62, 110, 92, .12); color: #3E6E5C; }
 .detail-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .detail-stat {
   padding: 14px 16px; border-radius: 14px;
@@ -2030,7 +2018,6 @@ body { padding: 30px; }
   .dash-thumbstrip > .dash-module, .dash-thumbstrip .mod-thumb { flex: 0 0 168px; }
   .detail-body { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .detail-hero > b { font-size: 28px; }
   .detail-stat { padding: 10px 12px; }
   .detail-stat b { font-size: 17px; }
   .detail-bar-row { grid-template-columns: minmax(80px, 120px) minmax(0, 1fr) 58px; gap: 7px; }
@@ -2561,7 +2548,26 @@ body { padding: 30px; }
 }
 .detail-kpis .kpi { justify-content: flex-start; min-width: 0; text-align: left; }
 .detail-kpis .kpi .metric-value { white-space: normal; overflow-wrap: anywhere; }
+.detail-kpis .metric-value-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  position: relative; z-index: 1;
+}
+.detail-kpis .metric-value-row > .kpi-delta {
+  max-width: 100%; padding: 4px 9px; border-radius: 999px;
+  background: rgba(45, 18, 13, .06); color: var(--ink-3);
+  font-size: 12px; font-weight: 700; white-space: normal;
+}
+.detail-kpis .metric-value-row > .kpi-delta.good { background: rgba(107, 11, 12, .08); color: var(--pcc-red); }
+.detail-kpis .metric-value-row > .kpi-delta.bad { background: rgba(62, 110, 92, .12); color: #3E6E5C; }
 .store-drill .detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+@media (min-width: 760px) and (max-width: 1199px) {
+  .dash-module[data-mod="paid"] .detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1200px) {
+  .dash-module[data-mod="paid"] .detail-kpis {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, .8fr) minmax(0, .95fr) minmax(0, 1.1fr);
+  }
+}
 
 /* KPI 不等宽：金额卡多留空间，其余三张收紧右侧留白 */
 .dash-kpis.hq-kpis {
