@@ -1579,8 +1579,8 @@ body { padding: 30px; }
 }
 .mod-expand svg { width: 15px; height: 15px; }
 .dash-module:hover > .mod-expand { opacity: 1; }
-.dash-module[data-kind="kpi"]:hover .kpi { box-shadow: 0 16px 42px rgba(74, 30, 24, .16); transform: translateY(-2px); }
-.dash-module[data-kind="kpi"] .kpi { transition: box-shadow .2s ease, transform .2s ease; }
+.dash-module[data-kind="kpi"]:hover .kpi-module-body > .kpi { box-shadow: 0 16px 42px rgba(74, 30, 24, .16); transform: translateY(-2px); }
+.dash-module[data-kind="kpi"] .kpi-module-body > .kpi { transition: box-shadow .2s ease, transform .2s ease; }
 .mod-expand:hover { transform: scale(1.08); background: #fff; }
 .mod-thumb { display: none; }
 .dash-board .dash-stage, .dash-board .dash-thumbstrip { display: none; }
@@ -1773,7 +1773,6 @@ body { padding: 30px; }
 }
 /* ---------- 门店对比详情：排名 + 单店下钻图表 ---------- */
 .store-detail-body { grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); align-items: start; }
-.store-detail-body > .detail-stats { grid-column: 1 / -1; }
 /* 排名列高度由 JS(ResizeObserver) 与右侧下钻列实际渲染高度同步：列内滚动，两列齐平无空白 */
 .store-rank-list { overflow-y: auto; }
 .store-rank-row { padding: 9px 8px; }
@@ -1784,7 +1783,6 @@ body { padding: 30px; }
 .store-drill { display: flex; flex-direction: column; gap: 12px; }
 .store-drill > .detail-section-head { padding-bottom: 8px; border-bottom: 1px solid var(--line-2); color: var(--pcc-red); }
 .store-drill .detail-section { min-width: 0; }
-.store-drill .detail-stats { grid-column: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 
 /* ---------- KPI 原位放大后的详情视图 ---------- */
 .kpi-module-body { height: 100%; }
@@ -2128,6 +2126,9 @@ body { padding: 30px; }
   font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
 }
 .trend-insight b { color: var(--pcc-red); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.dash-chart .trend-detail-kpis { display: none; }
+.dash-stage .dash-chart .trend-insight { display: none; }
+.dash-stage .dash-chart .trend-detail-kpis { display: grid; margin-bottom: 18px; }
 
 /* 券种表现：参考图的彩色圆环 + 酒红横条 */
 .rate-fill { height: 9px; border-radius: 999px; background: linear-gradient(90deg, #8E1B1C, var(--pcc-red)); }
@@ -2219,10 +2220,6 @@ body { padding: 30px; }
   content: ''; position: absolute; left: 3px; top: 9px;
   width: 6px; height: 6px; border-radius: 50%; background: var(--pcc-red); opacity: .7;
 }
-.cd-metric { padding: 16px !important; }
-.cd-metric .metric-label { font-size: 12.5px; color: var(--ink-3); }
-.cd-metric .metric-value.small { font-size: 30px; }
-
 @media (max-width: 900px) {
   .cd-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -2255,7 +2252,6 @@ body { padding: 30px; }
 @media (max-width: 760px) {
   .page-title { font-size: 26px !important; }
   .trend-insight { padding: 2px 14px 10px; }
-  .cd-metrics.metrics-4 { grid-template-columns: repeat(2, 1fr); }
   .cd-hint, .cd-sec .cd-hint { display: none; }
 }
 
@@ -2306,12 +2302,8 @@ body { padding: 30px; }
 .ai-drawer { height: auto; max-height: min(620px, calc(100vh - 48px)); min-height: 232px; }
 .ai-drawer.enlarged { max-height: min(1180px, calc(100vh - 48px)); min-height: 420px; }
 
-/* 8) 详情/下钻：门店对比固定为「左侧排名 + 右侧单店下钻」两列。
- *    之前用 auto-fit minmax(320px) 会在宽屏拆成 3 列、第三列空置，排版错乱。
- *    顶层统计跨满两列 4 等分；drill 内统计维持 2×2，避免被通用 auto-fit 压成竖排。 */
+/* 8) 门店对比详情：宽屏下左侧排名与右侧单店下钻并排。 */
 .store-detail-body { grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); }
-.store-detail-body > .detail-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.store-drill .detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* 9) 超短页面的收尾节奏：最后一个卡片与容器底部保持克制间距。 */
 #content > :last-child { margin-bottom: 0; }
@@ -2530,21 +2522,21 @@ body { padding: 30px; }
 .ai-scope-row b { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 2px; }
 
 /* ==========================================================================
- * 数据大盘 KPI：去掉卡片图标，指标名左上、数值居中放大，底部同比保持原样
+ * 大盘和详情页共用 KPI 卡片的指标标题、数字与配色。
  * ========================================================================== */
-.dash-kpis .kpi {
+:is(.dash-kpis, .detail-kpis) .kpi {
   justify-content: space-between;
   gap: 6px;
 }
 .dash-kpis .kpi .metric-icon { display: none; }
-.dash-kpis .kpi .metric-label {
+:is(.dash-kpis, .detail-kpis) .kpi .metric-label {
   align-self: flex-start;
   margin-bottom: 0;
   font-size: 15px;
   letter-spacing: .045em;
   line-height: 1.2;
 }
-.dash-kpis .kpi .metric-value {
+:is(.dash-kpis, .detail-kpis) .kpi .metric-value {
   align-self: flex-start;
   text-align: left;
   font-size: 40px;
@@ -2557,9 +2549,19 @@ body { padding: 30px; }
   align-self: stretch;
 }
 @media (max-width: 1280px) {
-  .dash-kpis .kpi .metric-value { font-size: 34px; }
-  .dash-kpis .kpi .metric-label { font-size: 14px; }
+  :is(.dash-kpis, .detail-kpis) .kpi .metric-value { font-size: 34px; }
+  :is(.dash-kpis, .detail-kpis) .kpi .metric-label { font-size: 14px; }
 }
+
+.detail-kpis {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 14px;
+}
+.detail-kpis .kpi { justify-content: flex-start; min-width: 0; text-align: left; }
+.detail-kpis .kpi .metric-value { white-space: normal; overflow-wrap: anywhere; }
+.store-drill .detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 
 /* KPI 不等宽：金额卡多留空间，其余三张收紧右侧留白 */
 .dash-kpis.hq-kpis {

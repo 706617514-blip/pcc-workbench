@@ -37,10 +37,10 @@
     const d = delta && delta.text
       ? `<span class="kpi-delta${delta.good === true ? ' good' : delta.good === false ? ' bad' : ''}">${esc(delta.text)}</span>`
       : '';
+    const foot = d || hint ? `<div class="metric-foot">${d}<span>${esc(hint || '')}</span></div>` : '';
     m.innerHTML = `
       <div class="metric-label">${esc(label)}</div>
-      <div class="metric-value">${esc(value)}</div>
-      <div class="metric-foot">${d}<span>${esc(hint)}</span></div>`;
+      <div class="metric-value">${esc(value)}</div>${foot}`;
     return m;
   }
 
@@ -728,6 +728,12 @@
     return s;
   }
 
+  function detailKpis(items) {
+    const row = el('div', 'detail-kpis');
+    items.forEach(({ label, value }) => row.appendChild(kpiCard(label, value)));
+    return row;
+  }
+
   function detailSection(title, node, hint, wide) {
     const s = el('div', 'detail-section' + (wide ? ' is-wide' : ''));
     // 小标题统一放进内容框内（与 detailChart 一致），不再浮在框外
@@ -1208,7 +1214,7 @@
       const aov = scoped.length ? metrics.paid_amount / scoped.length : 0;
 
       if (key === 'issued') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
           { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
           { label: t('ov.detail.campaigns'), value: num(metrics.byCampaign.filter((x) => x.issued > 0).length) },
@@ -1219,7 +1225,7 @@
         // 统一发券 TOP6：券种即发券单位，按发放量由多到少，一行一券种，点击可筛选
         blocks.push(detailSection(t('ov.detail.issueTop6'), detailBars(typeIssued.slice(0, 6), pickCoupon), t('ov.detail.clickHint')));
       } else if (key === 'claim') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
           { label: t('ov.detail.claimed'), value: num(metrics.claimed_of_issued) },
           { label: t('ov.detail.rate'), value: pct(metrics.claim_rate) },
@@ -1231,7 +1237,7 @@
         ], 200));
         blocks.push(detailSection(t('ov.detail.typeClaim'), detailBars(typeClaim, pickCoupon), t('ov.detail.clickHint')));
       } else if (key === 'redeem') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.issued'), value: num(metrics.issued) },
           { label: t('ov.detail.used'), value: num(metrics.used_of_issued) },
           { label: t('ov.detail.rate'), value: pct(metrics.redeem_rate) },
@@ -1245,7 +1251,7 @@
           if (v) openStoreDetail(v.sid);
         }), t('ov.store.rankHint'), true));
       } else if (key === 'paid') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
           { label: t('ov.detail.count'), value: num(scoped.length) },
           { label: t('ov.detail.aov'), value: money(aov) },
@@ -1260,7 +1266,7 @@
           if (v) openStoreDetail(v.sid);
         }), t('ov.store.rankHint'), true));
       } else if (key === 'used') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.used'), value: num(metrics.used) },
           { label: t('ov.detail.total'), value: money(metrics.paid_amount) },
           { label: t('ov.detail.aov'), value: money(aov) },
@@ -1273,7 +1279,7 @@
         blocks.push(detailSection(t('ov.detail.slotUsed'), detailBars(slotUsed)));
       } else if (key === 'applicable') {
         const apps = DB.campaigns.filter((c) => c.status === 'running' && E.campaignCoversStore(c, acc.scope_id));
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.detail.applicable'), value: num(apps.length) },
           { label: t('ov.detail.types'), value: num(new Set(apps.map((c) => c.coupon_type)).size) },
         ]));
@@ -1283,7 +1289,7 @@
           tag: t('ov.detail.running'),
         })))));
       } else if (key === 'anomaly') {
-        blocks.push(detailStats([
+        blocks.push(detailKpis([
           { label: t('ov.metric.anomaly'), value: num(metrics.anomalies.length) },
           { label: t('ov.detail.coverage'), value: num(metrics.trend.length) + ' 天' },
         ]));
@@ -1354,6 +1360,13 @@
       <span>${esc(t('ov.trend.peak'))} <b>${num(trendPeak)}</b></span>
       <span>${esc(t('ov.trend.low'))} <b>${num(trendLow)}</b></span>`;
     chartCard.appendChild(trendInsight);
+    const trendDetailKpis = detailKpis([
+      { label: t('ov.trend.avg'), value: `${num(Math.round(trendAvg))} / ${t('ov.trend.day')}` },
+      { label: t('ov.trend.peak'), value: num(trendPeak) },
+      { label: t('ov.trend.low'), value: num(trendLow) },
+    ]);
+    trendDetailKpis.classList.add('trend-detail-kpis');
+    chartCard.appendChild(trendDetailKpis);
     const canvas = el('canvas');
     chartCard.appendChild(canvas);
     addMod({
@@ -1476,7 +1489,7 @@
         p.body.classList.add('detail-body', 'store-detail-body');
 
         const top = storeRank(S.ov.storeMetric)[0];
-        p.body.appendChild(detailStats([
+        p.body.appendChild(detailKpis([
           { label: t('ov.store.metric.used'), value: num(storeStats.reduce((a, v) => a + v.count, 0)) + ' ' + t('ov.heat.unit') },
           { label: t('ov.store.metric.paid'), value: money(storeStats.reduce((a, v) => a + v.paid, 0)) },
           { label: t('ov.store.count'), value: num(storeStats.length) },
@@ -1524,7 +1537,7 @@
         function renderDrill(v) {
           drill.innerHTML = '';
           drill.appendChild(el('div', 'detail-section-head', esc(t('ov.store.drill.title', { name: v.name }))));
-          drill.appendChild(detailStats([
+          drill.appendChild(detailKpis([
             { label: t('ov.store.metric.used'), value: num(v.count) + ' ' + t('ov.heat.unit') },
             { label: t('ov.store.metric.paid'), value: money(v.paid) },
             { label: t('ov.store.activeDays'), value: num(v.days.size) + ' ' + t('ov.store.days') },
@@ -1644,7 +1657,7 @@
       p.body.classList.add('coupon-detail-body');
       couponDetailHost.appendChild(p.root);
 
-      p.body.appendChild(detailStats([
+      p.body.appendChild(detailKpis([
         { label: t('ov.coupon.detail.unifiedCount'), value: num(unifiedCouponRows.length) },
         { label: t('ov.coupon.detail.storeCount'), value: num(storeCouponRows.length) },
         { label: t('ov.coupon.detail.overall'), value: pct(metrics.redeem_rate) },
@@ -2654,15 +2667,15 @@
 
     const resultBlock = `<div class="cd-result">
         <div class="cd-sec"><span class="cd-sec-t">发放结果</span><span class="cd-sec-line"></span></div>
-        <div class="metrics metrics-4 cd-metrics" style="margin-bottom:0">
-          <button type="button" class="metric cd-metric" data-cd="issued" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(issued.length))}</div></button>
-          <button type="button" class="metric cd-metric" data-cd="claimed" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">领取 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(claimed))}</div></button>
-          <button type="button" class="metric cd-metric" data-cd="used" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">核销 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(num(used))}</div></button>
-          <button type="button" class="metric cd-metric" data-cd="rate" style="min-height:auto;padding:14px 16px">
-            <div class="metric-label">核销率 <span class="cd-go">↗</span></div><div class="metric-value small">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></button>
+        <div class="detail-kpis cd-metrics">
+          <button type="button" class="metric kpi cd-metric" data-cd="issued">
+            <div class="metric-label">发放 <span class="cd-go">↗</span></div><div class="metric-value">${esc(num(issued.length))}</div></button>
+          <button type="button" class="metric kpi cd-metric" data-cd="claimed">
+            <div class="metric-label">领取 <span class="cd-go">↗</span></div><div class="metric-value">${esc(num(claimed))}</div></button>
+          <button type="button" class="metric kpi cd-metric" data-cd="used">
+            <div class="metric-label">核销 <span class="cd-go">↗</span></div><div class="metric-value">${esc(num(used))}</div></button>
+          <button type="button" class="metric kpi cd-metric" data-cd="rate">
+            <div class="metric-label">核销率 <span class="cd-go">↗</span></div><div class="metric-value">${esc(issued.length ? pct(used / issued.length) : '0.0%')}</div></button>
         </div>
       </div>`;
     const ruleLines = ct.rules.slice();
