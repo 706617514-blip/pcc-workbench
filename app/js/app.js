@@ -109,6 +109,7 @@
 
   const t = (k, vars) => global.t(k, S.locale, vars);
   const account = () => E.ACCOUNTS.find((a) => a.account_id === S.accountKey) || E.ACCOUNTS[0];
+  const campaignDiscount = (c) => E.utils.discountLabel(c.discount != null ? c.discount : E.COUPON_TYPES[c.coupon_type].discount);
   const isStore = () => account().scope_type === 'store';
 
   /* ------------------------------------------------------------ 路由
@@ -2421,6 +2422,8 @@
         store_ids: resolveScope().store_ids,
         segment_definition: $('#dlgSegment', body).value,
         audience_size: res.total,
+        audience_filters: JSON.parse(JSON.stringify(S.create.filters)),
+        audience_ids: res.list.map((m) => m.customer_id),
         valid_from: $('#dlgFrom', body).value,
         valid_until: $('#dlgTo', body).value,
         source: pre.source || (store ? 'store_submit' : 'manual'),
@@ -2530,12 +2533,12 @@
         const ct = E.COUPON_TYPES[c.coupon_type];
         const item = el('div', 'camp-item');
         const meta = S.storeManageTab === 'applicable'
-          ? `<span>${esc(t('dlg.coupon'))}：${esc(ct.name)} · ${esc(ct.discount_label)}</span>
+          ? `<span>${esc(t('dlg.coupon'))}：${esc(ct.name)} · ${esc(campaignDiscount(c))}</span>
              <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
              <span>${esc(t('progress.col.status'))}：${esc(E.STATUS.campaign[c.status] || c.status)}</span>`
           : `<span>${esc(t('manage.source'))}：${esc(E.utils.storeLabel(c.store_id || myStore))}</span>
              <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
-             <span>${esc(ct.name)} · ${esc(ct.discount_label)}</span>
+             <span>${esc(ct.name)} · ${esc(campaignDiscount(c))}</span>
              <span>${esc(t('ap.submit_date'))}：${esc((c.created_at || '').replace('T', ' '))}</span>`;
         item.innerHTML = `<div class="camp-main">
             <div class="camp-name-row">
@@ -2603,7 +2606,7 @@
             <span>${esc(t('mg.scope'))}：${esc(E.scopeLabelOf(c))}</span>
             ${c.source === 'store_submit' ? `<span>${esc(t('manage.source'))}：${esc(E.utils.storeLabel(c.store_id))}</span>` : ''}
             <span>${esc(t('mg.recent'))}：${esc(num(issued))} ${esc(t('mg.sheets'))}</span>
-            <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(E.COUPON_TYPES[c.coupon_type].discount_label)}</span>
+            <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(campaignDiscount(c))}</span>
           </div>
         </div>
         <div class="camp-right">
@@ -2668,7 +2671,7 @@
       <div class="cd-sec"><span class="cd-sec-t">活动概览</span><span class="cd-sec-line"></span></div>
       <div class="cd-info-grid">
         ${infoCard('活动编号', `<span class="mono">${esc(c.campaign_id)}</span>`)}
-        ${infoCard('券种', esc(ct.name) + ' · ' + esc(ct.discount_label))}
+        ${infoCard('券种', esc(ct.name) + ' · ' + esc(campaignDiscount(c)))}
         ${infoCard('触发条件', esc(ct.trigger_label))}
         ${infoCard('有效期', esc(ct.validity_label))}
         ${infoCard('每人次数', esc(ct.per_member_label))}
@@ -2954,7 +2957,7 @@
     const body = el('div');
     body.innerHTML = `
       <div class="dl-row"><span class="k">活动编号</span><span class="v mono">${esc(c.campaign_id)}</span></div>
-      <div class="dl-row"><span class="k">券种 / 折扣</span><span class="v">${esc(ct.name)} · ${esc(ct.discount_label)}</span></div>
+      <div class="dl-row"><span class="k">券种 / 折扣</span><span class="v">${esc(ct.name)} · ${esc(campaignDiscount(c))}</span></div>
       <div class="dl-row"><span class="k">活动类型</span><span class="v">${esc(c.mode === 'auto' ? t('mg.tab.auto') : t('sr.mode.manual'))}</span></div>
       <div class="dl-row"><span class="k">${esc(scopeLabelText)}</span><span class="v">${esc(E.scopeLabelOf(c))}</span></div>
       <div class="dl-row"><span class="k">目标人群</span><span class="v">${esc(c.segment_definition || '—')}</span></div>
@@ -2999,7 +3002,7 @@
           message: `确认批准「${c.name}」？`,
           detail: `<div class="ap-impact">
             <div class="ap-impact-row"><span>目标会员</span><b>${c.audience_size ? num(c.audience_size) + ' 人' : '按筛选人群动态确定'}</b></div>
-            <div class="ap-impact-row"><span>券种 / 折扣</span><b>${esc(ct.name)} · ${esc(ct.discount_label)}</b></div>
+            <div class="ap-impact-row"><span>券种 / 折扣</span><b>${esc(ct.name)} · ${esc(campaignDiscount(c))}</b></div>
             <div class="ap-impact-row"><span>适用范围</span><b>${esc(E.scopeLabelOf(c))}</b></div>
             <div class="ap-impact-row"><span>执行方式</span><b>${esc(modeText)}</b></div>
           </div>
@@ -3017,11 +3020,14 @@
       // 门店审批进度与本店适用列表因此能立即反映结果（状态仍由引擎写入）。
       if (approve && r.campaign && r.campaign.status === 'approved') {
         E.setCampaignStatus(c.campaign_id, 'running', who, '批准后由总部统一发放', { account: acc });
-        E.audit(who, 'distribute_campaign', 'campaign', c.campaign_id,
-          `批准「${c.name}」后由总部统一发放，活动进入运行中`, cmt || '审批后统一发放');
       }
+      const delivery = approve ? E.dispatchCampaign(c.campaign_id, who, '审批通过后执行发券') : null;
       mo.close();
-      toast(approve ? `已批准「${c.name}」` : `已驳回「${c.name}」`, approve ? 'ok' : 'warn');
+      toast(approve
+        ? (delivery && delivery.ok
+          ? `已批准「${c.name}」；发放 ${delivery.job.success} 张，拦截 ${delivery.job.blocked} 人`
+          : `已批准「${c.name}」，发券未执行：${delivery ? delivery.error : '未知原因'}`)
+        : `已驳回「${c.name}」`, approve && delivery && delivery.ok ? 'ok' : 'warn');
       render();
     }
     if (app) app.addEventListener('click', () => decide(true));
@@ -3056,7 +3062,7 @@
           <div class="camp-name-row"><span class="camp-name">${esc(c.name)}</span>${statusChip(c.status)}
             <span class="chip chip-red">${esc(t('manage.store_submit'))}</span></div>
           <div class="camp-meta">
-            <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(E.COUPON_TYPES[c.coupon_type].discount_label)}</span>
+            <span>${esc(E.COUPON_TYPES[c.coupon_type].name)} · ${esc(campaignDiscount(c))}</span>
             <span>${esc(t('dlg.scope.redeem'))}：${esc(E.scopeLabelOf(c))}</span>
             <span>${esc(t('progress.col.approver'))}：${esc(log.approver || '—')}</span>
             <span>${esc(t('progress.col.date'))}：${esc(log.approval_date && log.approval_date !== '—' ? log.approval_date.replace('T', ' ') : '—')}</span>

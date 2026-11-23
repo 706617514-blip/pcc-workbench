@@ -1,6 +1,6 @@
 name: verify
 
-# 每次 push 到 main、或提 PR 时，自动跑 app/selftest.html 里的 16 条验收场景。
+# 每次 push 到 main、或提 PR 时，自动跑 app/selftest.html 里的 24 条验收场景。
 # 任何一条 FAIL（或数量不对）都会让这个 job 变红叉，提醒刚改动的人。
 
 on:

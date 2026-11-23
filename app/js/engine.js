@@ -49,6 +49,7 @@
     approvalLog: [], auditLog: [], guardLog: [],
     aiSession: [], aiTurn: [],
     staffAccount: [], roleScope: [], localePreference: [],
+    lastRedemptionByCustomer: new Map(),
     seq: { campaign: 1, coupon: 1, message: 1, job: 1, attempt: 1, redeem: 1, audit: 1, guard: 1, turn: 1, approval: 1 },
   };
 
@@ -98,6 +99,11 @@
     DB.memberStoreIdx = msi;
 
     seedRuntime();
+    DB.redemption.forEach((r) => {
+      const day = r.redeemed_at || '';
+      const previous = DB.lastRedemptionByCustomer.get(r.customer_id) || '';
+      if (day > previous) DB.lastRedemptionByCustomer.set(r.customer_id, day);
+    });
     DB.ready = true;
     return DB;
   }
@@ -276,6 +282,17 @@
     };
   }
 
+  function lastPurchaseAt(customerId) {
+    const stats = memberStats(customerId, 'all_hk', null);
+    const transactionAt = stats ? stats.last_ts : '';
+    const redemptionAt = DB.lastRedemptionByCustomer.get(customerId) || '';
+    return transactionAt > redemptionAt ? transactionAt : redemptionAt;
+  }
+
+  function lastPurchaseDate(customerId) {
+    return lastPurchaseAt(customerId).slice(0, 10);
+  }
+
   function PCC_TODAY() { return d2(C.DATA_TODAY); }
 
   /**
@@ -439,17 +456,16 @@
   function triggerMatches(customerId, couponType, todayStr, storeId) {
     const c = DB.byId.get(customerId);
     if (!c) return false;
-    if (couponType === 'newbie') return !!c.signup_date && dayDiff(todayStr, c.signup_date) <= 30;
+    if (couponType === 'newbie') return !!c.signup_date && dayDiff(todayStr, c.signup_date) === 0;
     if (couponType === 'birthday') {
-      return !!c.birthday_mmdd && c.birthday_mmdd.slice(0, 2) === todayStr.slice(5, 7);
+      return !!c.birthday_mmdd && c.birthday_mmdd === todayStr.slice(5, 10);
     }
     if (couponType === 'student') {
       const se = c.student_eligibility;
       return !!(se && se.eligible && se.valid_until >= todayStr);
     }
     if (couponType === 'winback') {
-      const st = memberStats(customerId, storeId ? 'store' : 'all_hk', storeId);
-      return !!(st && st.days_since >= 30);
+      return !!(lastPurchaseDate(customerId) && dayDiff(todayStr, lastPurchaseDate(customerId)) >= 30);
     }
     if (couponType === 'halloween') {
       const w = COUPON_TYPES.halloween.window;
@@ -478,7 +494,7 @@
    * 找出会把该会员「接走」的更高优先级规则。
    * 只比较：运行中 + 范围覆盖 + 触发命中 + 该规则自身不会因去重被拦的规则。
    */
-  function findHigherPriorityRule(customerId, currentCampaign, todayStr, storeId) {
+  function findHigherPriorityRule(customerId, currentCampaign, todayStr, storeId, instanceIndex) {
     if (!currentCampaign) return null;
     const running = DB.campaigns.filter((c) =>
       c.status === 'running' && c.campaign_id !== currentCampaign.campaign_id);
@@ -491,7 +507,7 @@
       if (!ruleAppliesTo(c, customerId, storeId)) continue;
       const ctxStore = c.store_scope === 'store' ? c.store_id : storeId;
       if (!triggerMatches(customerId, c.coupon_type, todayStr, ctxStore)) continue;
-      const dup = checkDuplicate(customerId, c.coupon_type, { campaign: c, today: todayStr });
+      const dup = checkDuplicate(customerId, c.coupon_type, { campaign: c, today: todayStr, instanceIndex });
       if (dup.blocked) continue;                  // 该规则自己也发不出去，不算竞争
       if (!winner || outranks(c, winner)) winner = c;
     }
@@ -527,16 +543,28 @@
     const todayStr = opts.today || C.DATA_TODAY;
     const scopeId = opts.store_id || null;
 
+    if (opts.campaign) {
+      const campaign = opts.campaign;
+      if (campaign.valid_from && todayStr < campaign.valid_from)
+        return { eligible: false, code: 'CAMPAIGN_NOT_STARTED', reason: '活动尚未到开始日期。' };
+      if (campaign.valid_until && todayStr > campaign.valid_until)
+        return { eligible: false, code: 'CAMPAIGN_ENDED', reason: '活动已超过结束日期。' };
+      if (!ruleAppliesTo(campaign, customerId, scopeId))
+        return { eligible: false, code: 'OUT_OF_SCOPE', reason: '会员不在活动适用门店范围内。' };
+    }
+    if (ct.validity_mode === 'fixed_window' && (todayStr < ct.window[0] || todayStr > ct.window[1]))
+      return { eligible: false, code: 'OUTSIDE_COUPON_WINDOW', reason: '当前日期不在限定券活动窗口内。' };
+
     // --- 4.1 券种特定前置条件 ---
     if (couponKey === 'newbie') {
       if (!c.signup_date) return { eligible: false, code: 'MISSING_SIGNUP_DATE', reason: '注册日期缺失，不触发新人券。' };
       const age = dayDiff(todayStr, c.signup_date);
-      if (age > 30) return { eligible: false, code: 'NOT_NEWBIE', reason: `注册已 ${age} 天，超出新人券 30 天窗口。` };
+      if (age !== 0) return { eligible: false, code: 'NOT_SIGNUP_DAY', reason: '新人券仅在注册当日触发。' };
     }
     if (couponKey === 'birthday') {
       if (!c.birthday_mmdd) return { eligible: false, code: 'MISSING_BIRTHDAY', reason: '生日月日缺失，不触发生日券。' };
-      if (c.birthday_mmdd.slice(0, 2) !== todayStr.slice(5, 7))
-        return { eligible: false, code: 'NOT_BIRTHDAY_MONTH', reason: '非生日当月。' };
+      if (c.birthday_mmdd !== todayStr.slice(5, 10))
+        return { eligible: false, code: 'NOT_BIRTHDAY', reason: '生日券仅在生日当天触发。' };
     }
     if (couponKey === 'student') {
       const se = c.student_eligibility;
@@ -545,10 +573,11 @@
         return { eligible: false, code: 'STUDENT_EXPIRED', reason: `学生资格已于 ${se.valid_until} 到期或无效。` };
     }
     if (couponKey === 'winback') {
-      const st = memberStats(customerId, scopeId ? 'store' : 'all_hk', scopeId);
-      if (!st) return { eligible: false, code: 'NO_STORE_TXN', reason: '该会员无本店消费记录。' };
-      if (st.days_since < 30)
-        return { eligible: false, code: 'NOT_DORMANT', reason: `最近消费距今 ${st.days_since} 天，未达连续 30 天未消费。` };
+      const last = lastPurchaseDate(customerId);
+      if (!last) return { eligible: false, code: 'NO_TXN', reason: '该会员无消费记录。' };
+      const days = dayDiff(todayStr, last);
+      if (days < 30)
+        return { eligible: false, code: 'NOT_DORMANT', reason: `最近消费距今 ${days} 天，未达连续 30 天未消费。` };
     }
 
     // --- 4.2 同意检查（PRD 表 3 / 8.2 / 6.2.3）---
@@ -562,12 +591,12 @@
     if (dup.blocked) return { eligible: false, code: dup.code, reason: dup.reason };
 
     // --- 4.4 频控（PRD 6.2.1 待 PCC 确认项，此处使用工作台配置）---
-    const freq = checkFrequency(customerId, todayStr);
+    const freq = checkFrequency(customerId, todayStr, opts.instanceIndex);
     if (freq.blocked) return { eligible: false, code: freq.code, reason: freq.reason };
 
     // --- 4.5 规则优先级：同一会员同时命中多条运行中规则时只发优先级最高的一张 ---
     if (!opts.ignorePriority && opts.campaign) {
-      const yieldTo = findHigherPriorityRule(customerId, opts.campaign, todayStr, scopeId);
+      const yieldTo = findHigherPriorityRule(customerId, opts.campaign, todayStr, scopeId, opts.instanceIndex);
       if (yieldTo) {
         const mine = priorityLevel(opts.campaign.coupon_type);
         const theirs = priorityLevel(yieldTo.coupon_type);
@@ -595,7 +624,9 @@
   function checkDuplicate(customerId, couponKey, opts) {
     const ct = COUPON_TYPES[couponKey];
     const todayStr = opts.today || C.DATA_TODAY;
-    const mine = DB.couponInstance.filter((x) => x.customer_id === customerId && x.coupon_type === couponKey);
+    const owned = opts.instanceIndex ? (opts.instanceIndex.get(customerId) || [])
+      : DB.couponInstance.filter((x) => x.customer_id === customerId);
+    const mine = owned.filter((x) => x.coupon_type === couponKey);
 
     if (couponKey === 'newbie') {
       if (mine.length) return { blocked: true, code: 'DUP_NEWBIE_ONCE', reason: '新人券每位会员仅一次，已发放。' };
@@ -606,8 +637,9 @@
         return { blocked: true, code: 'DUP_BIRTHDAY_YEAR', reason: `${thisYear} 年生日券已发放，每年一次。` };
     }
     if (couponKey === 'winback') {
-      // 同一轮：从首次达到连续 30 天未消费开始，未领取或已领取未使用的同轮券不重发
-      const openRound = mine.find((x) => (x.status === 'unclaimed' || x.status === 'claimed'));
+      // 同一轮以最后一次消费为边界；未领取券长期保留，已领取/过期也不会在同轮重发。
+      const last = lastPurchaseAt(customerId);
+      const openRound = mine.find((x) => x.status === 'unclaimed' || x.issued_at > last);
       if (openRound)
         return { blocked: true, code: 'DUP_WINBACK_SAME_ROUND',
                  reason: `同一轮回流券（${openRound.coupon_id}，状态${STATUS.coupon[openRound.status]}）仍有效，同轮不重复发放。` };
@@ -626,11 +658,13 @@
   }
 
   /** 频控：同一会员在窗口内的发券次数上限 */
-  function checkFrequency(customerId, todayStr) {
+  function checkFrequency(customerId, todayStr, instanceIndex) {
     const cap = HQ_POLICY.frequency_cap;
     const wkStart = addDays(todayStr, -6);
-    const recent = DB.couponInstance.filter((x) =>
-      x.customer_id === customerId && x.issued_at.slice(0, 10) >= wkStart && x.issued_at.slice(0, 10) <= todayStr);
+    const owned = instanceIndex ? (instanceIndex.get(customerId) || [])
+      : DB.couponInstance.filter((x) => x.customer_id === customerId);
+    const recent = owned.filter((x) =>
+      x.issued_at.slice(0, 10) >= wkStart && x.issued_at.slice(0, 10) <= todayStr);
     const sameDay = recent.filter((x) => x.issued_at.slice(0, 10) === todayStr);
     if (sameDay.length >= cap.per_customer_per_day)
       return { blocked: true, code: 'FREQ_DAILY_CAP',
@@ -652,6 +686,55 @@
     return `${campaignId}|${customerId}|${round || 'r0'}`;
   }
 
+  function campaignRound(campaign, customerId) {
+    if (campaign.coupon_type === 'winback')
+      return 'after-' + lastPurchaseDate(customerId);
+    return campaign.round || 'r1';
+  }
+
+  function discountLabel(value) {
+    return `${(value * 10).toFixed(1).replace(/\.0$/, '')} 折`;
+  }
+
+  function couponValidity(campaign, issuedDay) {
+    const ct = COUPON_TYPES[campaign.coupon_type];
+    let from = '', until = '';
+    if (ct.validity_mode === 'fixed_window') {
+      from = ct.window[0]; until = ct.window[1];
+    } else if (ct.validity_mode === 'fixed_from_issue') {
+      from = issuedDay; until = addDays(issuedDay, ct.validity_days);
+    } else {
+      from = issuedDay; // 领取后才开始计算天数
+    }
+    if (campaign.valid_from && campaign.valid_from > from) from = campaign.valid_from;
+    if (campaign.valid_until && (!until || campaign.valid_until < until)) until = campaign.valid_until;
+    return { from, until };
+  }
+
+  function campaignAudience(campaign) {
+    const filters = campaign.audience_filters || {};
+    const source = campaign.mode === 'manual' && Array.isArray(campaign.audience_ids)
+      ? campaign.audience_ids : filterMembers(filters, ACCOUNTS[0]).list.map((m) => m.customer_id);
+    return source.filter((cid) => ruleAppliesTo(campaign, cid, null));
+  }
+
+  function dispatchCampaign(campaignId, actor, reason, todayStr) {
+    const campaign = DB.campaigns.find((c) => c.campaign_id === campaignId);
+    if (!campaign || campaign.status !== 'running')
+      return { ok: false, error: '只有运行中的活动可以发券。' };
+    const day = todayStr || C.DATA_TODAY;
+    if (campaign.mode === 'manual' && campaign.last_dispatched_at)
+      return { ok: false, error: '该人工活动已发放，不能重复执行。' };
+    if (campaign.mode === 'auto' && campaign.last_run_date === day)
+      return { ok: false, error: '该自动规则今天已执行。' };
+    const audience = campaignAudience(campaign);
+    const job = executeSendJob({ campaign, audience, mode: campaign.mode, actor, reason,
+      now: day + 'T09:00' });
+    if (campaign.mode === 'auto') campaign.last_run_date = day;
+    else campaign.last_dispatched_at = job.executed_at;
+    return { ok: true, job };
+  }
+
   /**
    * 执行一个发放任务（自动规则触发或人工批次）。
    * 返回 sendJob，并写入 sendAttempt / couponInstance / messages。
@@ -667,10 +750,16 @@
       status: 'queued', created_at: now, executed_at: null, actor,
       store_id: campaign.store_scope === 'store' ? campaign.store_id : null,
       coupon_name: COUPON_TYPES[campaign.coupon_type].name,
-      discount_label: COUPON_TYPES[campaign.coupon_type].discount_label,
+      discount_label: discountLabel(campaign.discount),
     };
     const attempts = [];
     let blockedList = [];
+    const instanceIndex = new Map(), existingKeys = new Set();
+    DB.couponInstance.forEach((cp) => {
+      if (!instanceIndex.has(cp.customer_id)) instanceIndex.set(cp.customer_id, []);
+      instanceIndex.get(cp.customer_id).push(cp);
+      if (cp.idempotency_key) existingKeys.add(cp.idempotency_key);
+    });
 
     audience.forEach((m, i) => {
       const cid = m.customer_id || m;
@@ -679,8 +768,10 @@
         campaign_id: campaign.campaign_id,
         campaign,                       // 供规则优先级比较
         channel: campaign.channel || 'app_push',
+        today: now.slice(0, 10), instanceIndex,
       });
-      const key = idempotencyKey(campaign.campaign_id, cid, campaign.round || 'r1');
+      const round = campaignRound(campaign, cid);
+      const key = idempotencyKey(campaign.campaign_id, cid, round);
 
       if (!chk.eligible) {
         job.blocked++;
@@ -695,7 +786,7 @@
       }
 
       // 幂等：同一键已建券则跳过
-      if (DB.couponInstance.some((x) => x.idempotency_key === key)) {
+      if (existingKeys.has(key)) {
         job.blocked++;
         blockedList.push({ customer_id: cid, code: 'IDEMPOTENT_SKIP', reason: '同一幂等键已建券，跳过。' });
         attempts.push({
@@ -724,26 +815,22 @@
       // 建立券实例（发券成功的唯一标准）
       const ct = COUPON_TYPES[campaign.coupon_type];
       const couponId = 'CP-' + String(DB.seq.coupon++).padStart(6, '0');
-      let validFrom = '', validUntil = '';
-      if (ct.validity_mode === 'fixed_from_issue') {
-        validFrom = now.slice(0, 10); validUntil = addDays(validFrom, ct.validity_days);
-      } else if (ct.validity_mode === 'fixed_window') {
-        validFrom = ct.window[0]; validUntil = ct.window[1];
-      } else if (ct.validity_mode === 'from_claim') {
-        validFrom = ct.window ? ct.window[0] : now.slice(0, 10);   // 待领取不计有效期
-        validUntil = '';
-      }
-      DB.couponInstance.push({
+      const validity = couponValidity(campaign, now.slice(0, 10));
+      const cp = {
         coupon_id: couponId, campaign_id: campaign.campaign_id, customer_id: cid,
-        coupon_type: campaign.coupon_type, discount: ct.discount,
+        coupon_type: campaign.coupon_type, discount: campaign.discount,
         status: 'unclaimed', issued_at: now, claimed_at: null,
-        valid_from: validFrom, valid_until: validUntil,
-        idempotency_key: key, round: campaign.round || 'r1',
+        valid_from: validity.from, valid_until: validity.until,
+        idempotency_key: key, round,
         store_scope: campaign.store_scope, store_id: campaign.store_id || null,
         notify_status: chk.notifyAllowed ? 'sent' : 'pending',
         notify_channel: campaign.channel || 'app_push',
         requires_claim: !!ct.requires_claim,
-      });
+      };
+      DB.couponInstance.push(cp);
+      if (!instanceIndex.has(cid)) instanceIndex.set(cid, []);
+      instanceIndex.get(cid).push(cp);
+      existingKeys.add(key);
       job.success++;
       const a = {
         attempt_id: 'A-' + String(DB.seq.attempt++).padStart(5, '0'),
@@ -786,7 +873,7 @@
     if (!failed.length) return { ok: false, error: '该任务没有可重试的失败记录' };
     const campaign = DB.campaigns.find((c) => c.campaign_id === job.campaign_id) || {
       campaign_id: job.campaign_id, coupon_type: job.coupon_type, name: job.campaign_id,
-      store_scope: 'all_hk', channel: 'app_push',
+      store_scope: 'all_hk', channel: 'app_push', discount: COUPON_TYPES[job.coupon_type].discount,
     };
     let recovered = 0;
     failed.forEach((f) => {
@@ -794,15 +881,13 @@
       if (DB.couponInstance.some((x) => x.idempotency_key === f.idempotency_key)) return;
       const ct = COUPON_TYPES[job.coupon_type];
       const couponId = 'CP-' + String(DB.seq.coupon++).padStart(6, '0');
-      let validFrom = C.DATA_TODAY, validUntil = '';
-      if (ct.validity_mode === 'fixed_from_issue') validUntil = addDays(validFrom, ct.validity_days);
-      else if (ct.validity_mode === 'fixed_window') { validFrom = ct.window[0]; validUntil = ct.window[1]; }
+      const validity = couponValidity(campaign, C.DATA_TODAY);
       DB.couponInstance.push({
         coupon_id: couponId, campaign_id: job.campaign_id, customer_id: f.customer_id,
-        coupon_type: job.coupon_type, discount: ct.discount, status: 'unclaimed',
+        coupon_type: job.coupon_type, discount: campaign.discount, status: 'unclaimed',
         issued_at: C.DATA_TODAY + 'T10:30', claimed_at: null,
-        valid_from: validFrom, valid_until: validUntil,
-        idempotency_key: f.idempotency_key, round: 'r1',
+        valid_from: validity.from, valid_until: validity.until,
+        idempotency_key: f.idempotency_key, round: f.idempotency_key.split('|').slice(2).join('|') || 'r1',
         store_scope: campaign.store_scope || 'all_hk', store_id: campaign.store_id || null,
         notify_status: 'sent', notify_channel: campaign.channel || 'app_push',
         requires_claim: !!ct.requires_claim,
@@ -837,12 +922,22 @@
     if (!cp) return { ok: false, error: '券不存在' };
     if (cp.status !== 'unclaimed') return { ok: false, error: `券状态为「${STATUS.coupon[cp.status]}」，不可领取` };
     const ct = COUPON_TYPES[cp.coupon_type];
+    const campaign = DB.campaigns.find((c) => c.campaign_id === cp.campaign_id);
+    if (cp.valid_from && C.DATA_TODAY < cp.valid_from) return { ok: false, error: '券尚未到生效日期' };
+    if (cp.valid_until && C.DATA_TODAY > cp.valid_until) {
+      cp.status = 'expired';
+      return { ok: false, error: '券已超过领取期限' };
+    }
+    if (campaign && campaign.valid_until && C.DATA_TODAY > campaign.valid_until)
+      return { ok: false, error: '活动已超过结束日期' };
     cp.status = 'claimed';
     cp.claimed_at = C.DATA_TODAY + 'T14:20';
     if (ct.validity_mode === 'from_claim') {
       // 领取日起开始计算有效期（PRD 9.1：未领取不计 3 天）
       cp.valid_from = C.DATA_TODAY;
       cp.valid_until = addDays(C.DATA_TODAY, ct.validity_days);
+      if (campaign && campaign.valid_until && campaign.valid_until < cp.valid_until)
+        cp.valid_until = campaign.valid_until;
     }
     audit(actor || cp.customer_id, 'claim_coupon', 'coupon_instance', couponId,
       `会员领取优惠券（${ct.name}），有效期 ${cp.valid_from} ~ ${cp.valid_until}`, '会员主动领取');
@@ -854,35 +949,45 @@
     const cp = DB.couponInstance.find((x) => x.coupon_id === couponId);
     if (!cp) return { ok: false, error: '券不存在' };
     if (cp.status !== 'claimed') return { ok: false, error: `券状态为「${STATUS.coupon[cp.status]}」，不可核销` };
-    if (cp.valid_until && C.DATA_TODAY > cp.valid_until) return { ok: false, error: '券已超过有效期' };
+    if (cp.valid_from && C.DATA_TODAY < cp.valid_from) return { ok: false, error: '券尚未到生效日期' };
+    if (cp.valid_until && C.DATA_TODAY > cp.valid_until) {
+      cp.status = 'expired';
+      return { ok: false, error: '券已超过有效期' };
+    }
+    if (!Number.isFinite(orderAmount) || orderAmount <= 0) return { ok: false, error: '订单金额必须大于零' };
     const ct = COUPON_TYPES[cp.coupon_type];
 
     if (usePoints && !ct.stack_points)
       return { ok: false, error: `${ct.name} ${ct.stack_label}，不能与积分同单使用。` };
+    if (!Number.isFinite(Number(usePoints || 0)) || Number(usePoints || 0) < 0)
+      return { ok: false, error: '积分数量无效' };
 
     // 结算顺序：先积分抵付，再对剩余金额应用一张折扣券
     let remaining = orderAmount;
     let pointValue = 0;
+    let pointsUsed = 0;
     if (usePoints) {
       // PCC：每 20 分抵 HK$1（PRD 6.2.1）
-      const pointsUsed = Math.min(usePoints, Math.floor(orderAmount * 20));
+      pointsUsed = Math.min(Math.floor(usePoints), Math.floor(orderAmount * 20));
       pointValue = pointsUsed / 20;
       remaining = Math.max(0, orderAmount - pointValue);
     }
-    const paid = Math.round(remaining * ct.discount * 100) / 100;
+    const paid = Math.round(remaining * cp.discount * 100) / 100;
 
     cp.status = 'used';
-    cp.redeemed_at = C.DATA_TODAY + 'T12:45';
+    cp.redeemed_at = C.DATA_TODAY + 'T14:30';
     const r = {
       redemption_id: 'RD-' + String(DB.seq.redeem++).padStart(6, '0'),
       coupon_id: couponId, transaction_id: 'T-SIM' + String(DB.seq.redeem).padStart(4, '0'),
       customer_id: cp.customer_id, store_id: cp.store_id || 'PCC-TKO03',
       redeemed_at: cp.redeemed_at, order_amount: orderAmount,
-      points_used: usePoints ? Math.floor(orderAmount * 20) : 0,
+      points_used: pointsUsed,
       point_value: pointValue, paid_amount: paid, items: [],
-      discount_applied: ct.discount_label, coupon_type: cp.coupon_type,
+      discount_applied: discountLabel(cp.discount), coupon_type: cp.coupon_type,
     };
     DB.redemption.push(r);
+    const previous = DB.lastRedemptionByCustomer.get(cp.customer_id) || '';
+    if (cp.redeemed_at > previous) DB.lastRedemptionByCustomer.set(cp.customer_id, cp.redeemed_at);
     audit(actor || cp.customer_id, 'redeem_coupon', 'redemption', r.redemption_id,
       `核销 ${ct.name}：原价 HK$${orderAmount}，积分抵付 HK$${pointValue}，实付 HK$${paid}`, '模拟核销');
     return { ok: true, redemption: r, coupon: cp };
@@ -982,7 +1087,7 @@
       return {
         campaign_id: camp.campaign_id, name: camp.name,
         coupon_type: camp.coupon_type, coupon_name: COUPON_TYPES[camp.coupon_type].name,
-        discount_label: COUPON_TYPES[camp.coupon_type].discount_label,
+        discount_label: discountLabel(camp.discount),
         mode: camp.mode, status: camp.status,
         scope_label: camp.store_scope === 'all_hk' ? '全港门店' : storeLabel(camp.store_id),
         issued: iss.length,
@@ -1232,6 +1337,8 @@
       status: 'pending',
       segment_definition: draft.segment_definition || '',
       audience_size: draft.audience_size || 0,
+      audience_filters: draft.audience_filters ? JSON.parse(JSON.stringify(draft.audience_filters)) : null,
+      audience_ids: Array.isArray(draft.audience_ids) ? draft.audience_ids.slice() : null,
       valid_from: draft.valid_from || '', valid_until: draft.valid_until || '',
       per_member: ct.per_member, stack_points: ct.stack_points,
       trigger_label: ct.trigger_label,
@@ -1376,9 +1483,9 @@
     // ---- 初始活动（对应 PRD 图 8 活动管理列表）----
     const seeds = [
       { name: '新人礼遇', coupon_type: 'newbie', mode: 'auto', store_scope: 'all_hk', status: 'running',
-        segment: '注册 30 天内且注册日期完整的会员', created_at: '2026-06-01T10:00' },
+        segment: '注册当日且注册日期完整的会员', created_at: '2026-06-01T10:00' },
       { name: '生日礼遇', coupon_type: 'birthday', mode: 'auto', store_scope: 'all_hk', status: 'running',
-        segment: '生日月日完整且当月的会员', created_at: '2026-06-01T10:05' },
+        segment: '生日月日完整且当天生日的会员', created_at: '2026-06-01T10:05' },
       { name: '30 天回流会员优惠', coupon_type: 'winback', mode: 'auto', store_scope: 'all_hk', status: 'pending',
         segment: '连续 30 天未消费会员', created_at: '2026-10-29T10:20' },
       { name: '回流礼遇（持续规则）', coupon_type: 'winback', mode: 'auto', store_scope: 'all_hk', status: 'running',
@@ -1837,8 +1944,8 @@
   global.PCC_ENGINE = {
     DB, init, ACCOUNTS, HQ_POLICY, COUPON_TYPES, STATUS,
     memberStats, filterMembers, maskPhone,
-    checkEligibility, checkDuplicate, checkFrequency, idempotencyKey,
-    executeSendJob, retrySendJob, markJobHandled,
+    checkEligibility, checkDuplicate, checkFrequency, idempotencyKey, campaignRound,
+    executeSendJob, dispatchCampaign, campaignAudience, retrySendJob, markJobHandled,
     claimCoupon, redeemCoupon,
     computeMetrics, permissionGuard, routeApproval,
     audit, approvalLog, guardLog,
@@ -1848,7 +1955,7 @@
     // 规则优先级（老师反馈第 5 条）
     RULE_PRIORITY, priorityLevel, priorityLadder, findHigherPriorityRule, outranks,
     triggerMatches,
-    utils: { iso, addDays, dayDiff, d2, storeLabel },
+    utils: { iso, addDays, dayDiff, d2, storeLabel, discountLabel, lastPurchaseDate },
   };
   global.PCC_CONST_COUPON_KEYS = couponTypeKeys;
 })(window);

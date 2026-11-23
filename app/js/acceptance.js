@@ -24,10 +24,10 @@
 
     /* ---- 1. 人工发券 ---- */
     try {
-      const res = E.filterMembers({ recency: 'dormant30' }, hq);
+      const res = E.filterMembers({ recency: 'lte7' }, store);
       const camp = E.createCampaign({
-        name: '验收·人工发放活动', coupon_type: 'winback', discount: 0.8,
-        mode: 'manual', store_scope: 'all_hk', segment_definition: '连续 30 天未消费',
+        name: '验收·人工发放活动', coupon_type: 'store_local', discount: 0.85,
+        mode: 'manual', store_scope: 'store', store_id: myStore, segment_definition: '本店近期会员',
         audience_size: res.total,
       }, hq, '总部营销人员');
       const appr = E.approveCampaign(camp.campaign_id, '陈经理', '同意');
@@ -398,7 +398,9 @@
     try {
       // 受控场景：临时注入两条不同级别的运行中规则，并清空券实例以排除去重干扰
       const savedCoupons = DB.couponInstance.slice();
-      const m = DB.customers.find((x) => x.birthday_mmdd && x.birthday_mmdd.slice(0, 2) === C.DATA_TODAY.slice(5, 7));
+      const m = DB.customers.find((x) => DB.memberStoreIdx.has(x.customer_id));
+      const savedBirthday = m && m.birthday_mmdd;
+      if (m) m.birthday_mmdd = C.DATA_TODAY.slice(5, 10);
       const hi = {
         campaign_id: 'CMP-TEST-HI', name: '测试·生日规则', coupon_type: 'birthday',
         status: 'running', store_scope: 'all_hk', mode: 'auto',
@@ -428,6 +430,7 @@
           const idx = DB.campaigns.indexOf(c);
           if (idx >= 0) DB.campaigns.splice(idx, 1);
         });
+        m.birthday_mmdd = savedBirthday;
       }
 
       const ok = !!m && winner && winner.coupon_type === 'birthday' && tieOk && ladderOk && levelOk;
@@ -549,6 +552,94 @@
         `跨店越权被拒=${denied ? denied.code : '无样本'}；` +
         `已批准不可撤回=${badState ? badState.code : '无样本'}；空原因被拒=${noReason ? noReason.code : '无样本'}`);
     } catch (e) { rec(21, '门店撤回提报', false, 'ERR ' + e.message); }
+
+    /* ---- 22. 审批后发券：人群快照、活动折扣、积分记录 ---- */
+    try {
+      const candidates = E.filterMembers({ recency: 'lte7' }, store).list.slice(30, 50);
+      const ids = candidates.map((m) => m.customer_id);
+      const camp = E.createCampaign({
+        name: '验收·审批后发券', coupon_type: 'store_local', discount: 0.9,
+        mode: 'manual', store_scope: 'store', store_id: myStore,
+        audience_filters: { recency: 'lte7' }, audience_ids: ids,
+        audience_size: ids.length, segment_definition: '本店近期会员',
+      }, hq, '总部营销人员');
+      const approved = E.approveCampaign(camp.campaign_id, '陈经理', '同意');
+      const started = E.setCampaignStatus(camp.campaign_id, 'running', '陈经理', '审批后发放', { account: hq });
+      const sent = E.dispatchCampaign(camp.campaign_id, '陈经理', '验收');
+      const again = E.dispatchCampaign(camp.campaign_id, '陈经理', '重复尝试');
+      const issued = DB.couponInstance.filter((cp) => cp.campaign_id === camp.campaign_id);
+      const own = issued.every((cp) => ids.includes(cp.customer_id) && cp.discount === 0.9);
+      let pointsOk = false;
+      if (issued.length) {
+        const cp = issued[0];
+        const claim = E.claimCoupon(cp.coupon_id, cp.customer_id);
+        const redeem = claim.ok ? E.redeemCoupon(cp.coupon_id, 68, 400, cp.customer_id) : null;
+        pointsOk = !!(redeem && redeem.ok && redeem.redemption.points_used === 400
+          && redeem.redemption.point_value === 20 && redeem.redemption.paid_amount === 43.2);
+      }
+      rec(22, '审批后发券与活动折扣',
+        approved.ok && started.ok && sent.ok && sent.job.requested === ids.length
+          && sent.job.discount_label === '9 折' && issued.length > 0 && own && !again.ok && pointsOk,
+        `目标 ${ids.length} 人；建券 ${issued.length} 张；活动 9 折=${own}；重复发放被拒=${!again.ok}；积分及实付=${pointsOk}`);
+    } catch (e) { rec(22, '审批后发券与活动折扣', false, 'ERR ' + e.message); }
+
+    /* ---- 23. 注册/生日当天与活动日期边界 ---- */
+    try {
+      const previous = E.utils.addDays(C.DATA_TODAY, -1);
+      const prevSignup = DB.customers.find((x) => x.signup_date === previous);
+      const prevBirthday = DB.customers.find((x) => x.birthday_mmdd
+        && x.birthday_mmdd.slice(0, 2) === C.DATA_TODAY.slice(5, 7)
+        && x.birthday_mmdd !== C.DATA_TODAY.slice(5, 10));
+      const todayBirthday = DB.customers.find((x) => !!x.birthday_mmdd && x !== prevBirthday);
+      const originalBirthday = todayBirthday && todayBirthday.birthday_mmdd;
+      if (todayBirthday) todayBirthday.birthday_mmdd = C.DATA_TODAY.slice(5, 10);
+      const cid = E.filterMembers({}, store).list[0].customer_id;
+      const camp = E.createCampaign({ name: '验收·未来活动', coupon_type: 'store_local',
+        discount: 0.85, mode: 'manual', store_scope: 'store', store_id: myStore,
+        valid_from: E.utils.addDays(C.DATA_TODAY, 1), valid_until: E.utils.addDays(C.DATA_TODAY, 2),
+      }, hq, '总部营销人员');
+      const check = E.checkEligibility(cid, 'store_local', { campaign: camp, store_id: myStore });
+      const todayMatched = !!todayBirthday && E.triggerMatches(todayBirthday.customer_id, 'birthday', C.DATA_TODAY);
+      if (todayBirthday) todayBirthday.birthday_mmdd = originalBirthday;
+      rec(23, '触发日期与活动窗口',
+        !!prevSignup && !!prevBirthday && !!todayBirthday
+          && !E.triggerMatches(prevSignup.customer_id, 'newbie', C.DATA_TODAY)
+          && !E.triggerMatches(prevBirthday.customer_id, 'birthday', C.DATA_TODAY)
+          && todayMatched
+          && check.code === 'CAMPAIGN_NOT_STARTED',
+        `昨日注册不触发=${!!prevSignup && !E.triggerMatches(prevSignup.customer_id, 'newbie', C.DATA_TODAY)}；` +
+        `同月非生日不触发=${!!prevBirthday && !E.triggerMatches(prevBirthday.customer_id, 'birthday', C.DATA_TODAY)}；` +
+        `未来活动被拦截=${check.code}`);
+    } catch (e) { rec(23, '触发日期与活动窗口', false, 'ERR ' + e.message); }
+
+    /* ---- 24. 回流券核销后满 30 天才进入新一轮 ---- */
+    try {
+      const member = E.filterMembers({ recency: 'dormant30' }, hq).list[0];
+      const cid = member.customer_id;
+      const saved = DB.couponInstance.filter((cp) => cp.customer_id === cid);
+      const oldLast = DB.lastRedemptionByCustomer.get(cid);
+      DB.couponInstance = DB.couponInstance.filter((cp) => cp.customer_id !== cid);
+      DB.lastRedemptionByCustomer.delete(cid);
+      const cp = { coupon_id: 'CP-TEST-ROUND', campaign_id: 'CMP-TEST-ROUND', customer_id: cid,
+        coupon_type: 'winback', discount: 0.8, status: 'unclaimed',
+        issued_at: C.DATA_TODAY + 'T09:00', claimed_at: null, valid_from: C.DATA_TODAY,
+        valid_until: '', idempotency_key: 'test|round', round: 'r1', store_scope: 'all_hk' };
+      DB.couponInstance.push(cp);
+      const roundBefore = E.campaignRound({ coupon_type: 'winback' }, cid);
+      const before = E.checkDuplicate(cid, 'winback', { today: C.DATA_TODAY });
+      const claim = E.claimCoupon(cp.coupon_id, cid);
+      const use = claim.ok ? E.redeemCoupon(cp.coupon_id, 68, 0, cid) : null;
+      const roundAfter = E.campaignRound({ coupon_type: 'winback' }, cid);
+      const now = E.checkEligibility(cid, 'winback', { today: C.DATA_TODAY });
+      const future = E.checkEligibility(cid, 'winback', { today: E.utils.addDays(C.DATA_TODAY, 30) });
+      DB.couponInstance = DB.couponInstance.filter((x) => x !== cp).concat(saved);
+      if (oldLast) DB.lastRedemptionByCustomer.set(cid, oldLast);
+      else DB.lastRedemptionByCustomer.delete(cid);
+      rec(24, '回流券新一轮',
+        before.blocked && !!(use && use.ok) && now.code === 'NOT_DORMANT'
+          && future.eligible && roundBefore !== roundAfter,
+        `同轮阻止重发=${before.blocked}；核销后当天=${now.code}；30 天后可再发=${future.eligible}；发放轮次变化=${roundBefore !== roundAfter}`);
+    } catch (e) { rec(24, '回流券新一轮', false, 'ERR ' + e.message); }
 
     const pass = results.filter((r) => r.pass).length;    const summary = {
       total: results.length, pass, fail: results.length - pass,

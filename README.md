@@ -175,7 +175,7 @@ AI 只生成「建议／草稿」，人员点击「填入活动表单」后仍�
 await PCC_ACCEPTANCE.run()
 ```
 
-将逐条核对 PRD 表 14 的 13 个核心验收场景，外加 8 项扩展测试（停止活动权限、门店撤回提报、门店范围筛选与多门店活动、多选下拉批量选择、消费金额与杯数自由区间、规则优先级、AI 券面额建议与核销预测、AI 券文案草稿生成），共 21 项（含规则优先级、AI 券面额建议与核销预测、AI 券文案草稿、停止活动权限），输出 PASS/FAIL 汇总。
+将逐条核对 PRD 表 14 的 13 个核心验收场景，以及权限、筛选、AI 辅助和发券规则等 11 项扩展测试，共 24 项，输出 PASS/FAIL 汇总。
 
 ---
 
@@ -225,7 +225,7 @@ cd pcc-workbench
 git pull                      # 开工前先拉，别在旧代码上改
 # …… 改代码 ……
 # 双击「启动网页.cmd」在浏览器里看效果
-# 控制台跑 await PCC_ACCEPTANCE.run()，确认 16/16
+# 控制台跑 await PCC_ACCEPTANCE.run()，确认 24/24
 git add -A
 git commit -m "说明这次改了什么"
 git push
@@ -236,7 +236,7 @@ git push
 1. **改前必 pull，改完必 push**；同一时段尽量不碰同一个文件（例如一人改 `app.js`，一人改 `engine.js`）。
 2. **`app/data/*.json` 是 15MB 生成数据**，除非确实要重新生成，否则不要动它、也不要提交改动
    （`.gitattributes` 已把它标记为二进制，避免 diff 变成几十万行）。
-3. **提交前跑一遍验收**，别把 16/16 改成 15/16；`app/selftest.html` 打开即可看到结果。
+3. **提交前跑一遍验收**，确认 24/24；`app/selftest.html` 打开即可看到结果。
 
 ### 发生冲突时
 
@@ -253,12 +253,12 @@ git commit
 
 ## 九、自动验收（CI）
 
-每次 push 到 `main`（或提 PR）都会自动跑一遍 16 条验收，配置在
+每次 push 到 `main`（或提 PR）都会自动跑一遍 24 条验收，配置在
 `.github/workflows/verify.yml`，全部通过才会显示绿勾：
 
 ```
 检出代码 → 起本地静态服务(python3 -m http.server) → 无头 Chrome 打开 app/selftest.html
-        → tools/check_acceptance.py 判定 → 有 FAIL 或数量≠16 就红叉
+        → tools/check_acceptance.py 判定 → 有 FAIL 或数量≠24 就红叉
 ```
 
 - **看结果**：仓库页顶部 **Actions** 标签，或 README 顶部那个 `verify` 徽章
